@@ -1,0 +1,24 @@
+{
+  "name": "@easleyowl/cf-genai-base",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "description": "Lean Worker lifecycle and security helpers for Cloudflare sites.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CONTRACT.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agilesyndrome/cf-genai-base.git"
+  },
+  "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme"
+}
