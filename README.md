@@ -19,3 +19,10 @@ export default createWorker({
   },
 });
 ```
+
+## Shared platform helpers
+
+`createWorker` can own `/health` and `/api/health`, run a boot validator before
+requests, and optionally deliver server-side PostHog events. Use
+`assertBoot(env, { bindings: ["DB"], required: ["AUTH_SESSION_SECRET"] })` in a
+site initializer to fail closed when its Cloudflare configuration is incomplete.
