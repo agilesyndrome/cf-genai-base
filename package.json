@@ -1,5 +1,5 @@
 {
-  "name": "@easleyowl/cf-genai-base",
+  "name": "@agilesyndrome/cf-genai-base",
   "version": "0.1.0",
   "type": "module",
   "exports": {
