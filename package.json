@@ -21,5 +21,10 @@
     "type": "git",
     "url": "git+https://github.com/agilesyndrome/cf-genai-base.git"
   },
-  "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme"
+  "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme",
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --check src/index.js",
+    "build": "npm run check && npm test && npm pack --dry-run"
+  }
 }
