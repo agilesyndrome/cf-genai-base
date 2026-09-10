@@ -26,25 +26,16 @@ in module scope. Background metrics work is scheduled through ctx.waitUntil.
 - src/index.js: public Worker composition API.
 - CONTRACT.md: shared site and feature contract.
 - README.md: integration examples.
-- Makefile: test/build/release lifecycle.
+- @agilesyndrome/cf-genai-cli: shared local project and release lifecycle.
 - .github/workflows/publish.yml: tag-driven npm Trusted Publishing.
 
 ## Build and release
 
-    make test
-    make build
-    make bump
-    make publish
-    make wait
+    npx --yes @agilesyndrome/cf-genai-cli@0.1.3 ci
+    npx --yes @agilesyndrome/cf-genai-cli@0.1.3 release
 
-make publish pushes the version tag to GitHub; the publish workflow verifies
-the package and publishes it to npm with provenance. It does not publish from a
-developer laptop. make wait handles npm registry propagation before consumers
-regenerate lockfiles.
+The CLI release command pushes the version tag to GitHub; the publish workflow
+verifies the package and publishes it to npm with provenance. It does not
+publish from a developer laptop.
 
 The release order is base first, then dependent feature packages such as auth.
-
-make status reports the exact npm version, matching Git tag, latest publish
-workflow result via gh, and local branch cleanliness/upstream alignment. It is
-read-only and may show WAIT/WARN for an unpublished template or unavailable
-external service.
