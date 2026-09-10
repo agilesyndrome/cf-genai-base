@@ -43,3 +43,8 @@ developer laptop. make wait handles npm registry propagation before consumers
 regenerate lockfiles.
 
 The release order is base first, then dependent feature packages such as auth.
+
+make status reports the exact npm version, matching Git tag, latest publish
+workflow result via gh, and local branch cleanliness/upstream alignment. It is
+read-only and may show WAIT/WARN for an unpublished template or unavailable
+external service.
