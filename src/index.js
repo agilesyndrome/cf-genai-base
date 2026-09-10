@@ -2,23 +2,32 @@
  * Lean, opinionated Worker composition for Cloudflare sites.
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
-export function createWorker({ fetch, scheduled, auth, health, boot, metrics, security = true }) {
+export function createWorker({ fetch, scheduled, auth, middleware = [], features = [], health, boot, metrics, security = true }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
+  const chain = [
+    ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
+    ...middleware,
+    ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : []),
+  ].filter(Boolean);
   return {
     async fetch(request, env, ctx) {
       try {
         if (boot) await boot(env, { request, ctx });
         const url = new URL(request.url);
-        const authResponse = auth ? await auth(request, env, ctx) : null;
-        let response = authResponse;
-        if (!response) {
-          if (url.pathname === "/health" || url.pathname === "/api/health") {
-            const details = health ? await health(env, { request, ctx }) : {};
-            response = healthResponse(env, details);
-          } else {
-            response = await fetch(request, env, ctx);
+        const state = Object.create(null);
+        const dispatch = async (index, currentRequest = request) => {
+          const layer = chain[index];
+          if (!layer) {
+            if (url.pathname === "/health" || url.pathname === "/api/health") {
+              const details = health ? await health(env, { request: currentRequest, ctx, state }) : {};
+              return healthResponse(env, details);
+            }
+            return fetch(currentRequest, env, ctx, state);
           }
-        }
+          if (typeof layer !== "function") throw new TypeError("Worker middleware must be a function");
+          return layer(currentRequest, env, ctx, (nextRequest = currentRequest) => dispatch(index + 1, nextRequest), state);
+        };
+        const response = await dispatch(0);
         if (metrics) metrics.request(request, response, env, ctx);
         return security ? secureResponse(response) : response;
       } catch (error) {

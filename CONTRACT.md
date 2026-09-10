@@ -4,8 +4,7 @@ Every site built from this foundation follows the same edge contract.
 
 ## Worker entrypoint
 
-`createWorker({ fetch, auth?, scheduled?, security? })` owns the Worker lifecycle.
-The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
+`createWorker({ fetch, features?, middleware?, auth?, scheduled?, security? })` owns the Worker lifecycle. Features run in declaration order and may call `next()` or return a response. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
 is optional and must use `ctx.waitUntil` for background work.
 
 ## Routes

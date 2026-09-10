@@ -6,10 +6,10 @@ The package must exist on npm before npm allows a Trusted Publisher to be
 configured. From this directory, run an interactive first publish:
 
 ```sh
-npm publish --access public
+npm publish --access public --provenance
 ```
 
-Complete npm's account/2FA prompt. This publishes `0.1.0`.
+Complete npm's account/2FA prompt. This publishes the version currently declared in `package.json`.
 
 ## GitHub Actions releases
 
