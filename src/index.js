@@ -2,7 +2,7 @@
  * Lean, opinionated Worker composition for Cloudflare sites.
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
-import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listUserGrants, replaceUserGrants } from "./authorization.js";
+import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants } from "./authorization.js";
 import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
 export * from "./core.js";
 export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true }) {
@@ -81,12 +81,13 @@ function requiredScopeFor(pathname, routes) {
 
 async function authorizationApi(request, env, url, state) {
   const grantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/scopes$/);
-  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
+  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
   if (!platformPath) return null;
   if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/scopes" && request.method === "GET") return Response.json({ scopes: await listAuthorizationScopes(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/status" && request.method === "GET") return Response.json({ features: await listFeatureHealth(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/groups" && request.method === "GET") return Response.json({ groups: await listGroups(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/healthchecks" && request.method === "GET") return Response.json({ healthchecks: await listHealthchecks(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/circuit-breakers" && request.method === "GET") return Response.json({ circuit_breakers: await listCircuitBreakers(env, { who: requestActor(state) }) });
   const healthcheckMatch = url.pathname.match(/\/api\/admin\/healthchecks\/([^/]+)$/);
@@ -94,6 +95,9 @@ async function authorizationApi(request, env, url, state) {
   const breakerMatch = url.pathname.match(/\/api\/admin\/circuit-breakers\/([^/]+)$/);
   if (breakerMatch && request.method === "GET") return Response.json({ circuit_breaker: await getCircuitBreaker(env, decodeURIComponent(breakerMatch[1]), { who: requestActor(state) }) });
   if (breakerMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body?.state) return Response.json({ error: "state is required" }, { status: 400 }); const breaker = await setCircuitBreaker(env, decodeURIComponent(breakerMatch[1]), body.state, { who: requestActor(state) }); return breaker ? Response.json({ circuit_breaker: breaker }) : Response.json({ error: "Circuit breaker not found" }, { status: 404 }); }
+  const groupsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/groups$/);
+  if (groupsMatch && request.method === "GET") return Response.json({ groups: await listUserGroups(env, decodeURIComponent(groupsMatch[1]), { who: requestActor(state) }) });
+  if (groupsMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body || !Array.isArray(body.groups)) return Response.json({ error: "groups must be an array" }, { status: 400 }); return Response.json({ groups: await replaceUserGroups(env, decodeURIComponent(groupsMatch[1]), body.groups, state.authUser && state.authUser.id, { who: requestActor(state) }) }); }
   if (grantsMatch && request.method === "GET") return Response.json({ grants: await listUserGrants(env, decodeURIComponent(grantsMatch[1]), { who: requestActor(state) }) });
   if (grantsMatch && request.method === "PUT") {
     const body = await request.json().catch(() => null);

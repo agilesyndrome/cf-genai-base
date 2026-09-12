@@ -16,7 +16,7 @@ is optional and must use `ctx.waitUntil` for background work.
 - Admin routes use `AUTH_STRATEGY`; omitted or empty means `http_basic`. Basic auth accepts username `admin` and the value of `ADMIN_TOKEN` (with `admin_token` supported for compatibility). Missing token means all admin routes return 401.
 - `AUTH_STRATEGY=oauth` delegates identity establishment to the configured auth provider and uses `authorize` for admin policy.
 - `scopes` registers an application scope manifest. `scopeRoutes` associates route prefixes or match functions with required scopes.
-- Base provides `/api/admin/users`, `/api/admin/scopes`, and `/api/admin/users/:id/scopes` for platform administrators when the authorization migration is installed.
+- Base provides `/api/admin/users`, `/api/admin/scopes`, `/api/admin/groups`, `/api/admin/status`, `/api/admin/healthchecks`, `/api/admin/circuit-breakers`, and `/api/admin/users/:id/scopes|groups` for platform administrators when the authorization and core migrations are installed. The exported UI includes users, scopes, groups, healthchecks, and circuit-breaker catalogs.
 - Public APIs must be explicitly listed in provider-specific auth configuration.
 - Mutating `/api/*` requests require a same-origin `Origin` header.
 

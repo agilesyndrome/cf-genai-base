@@ -56,6 +56,12 @@ export async function listAuthorizationScopes(env, { who = "system:read" } = {})
   return results;
 }
 
+export async function listGroups(env, { who = "system:read" } = {}) { const db = createD1(env, { who }); const result = await db.prepare("SELECT name,display_name,description,created_at,updated_at FROM auth_groups ORDER BY display_name COLLATE NOCASE").all(); return result.results || []; }
+
+export async function listUserGroups(env, userId, { who = "system:read" } = {}) { const db = createD1(env, { who }); const result = await db.prepare("SELECT group_name,granted_at FROM auth_user_groups WHERE user_id=? ORDER BY group_name").bind(userId).all(); return result.results || []; }
+
+export async function replaceUserGroups(env, userId, groups, grantedBy, { who = "system:read" } = {}) { const db = createD1(env, { who }); await db.batch([db.prepare("DELETE FROM auth_user_groups WHERE user_id=?").bind(userId), ...[...new Set(groups)].map((group) => db.prepare("INSERT INTO auth_user_groups (user_id,group_name,granted_by) VALUES (?,?,?)").bind(userId, group, grantedBy || null))]); return listUserGroups(env, userId, { who }); }
+
 export async function listUserGrants(env, userId, { who = "system:read" } = {}) {
   const db = createD1(env, { who });
   const { results } = await db.prepare(`SELECT scope_name,granted_at FROM ${AUTH_GRANT_TABLE} WHERE user_id=? ORDER BY scope_name`).bind(userId).all();
