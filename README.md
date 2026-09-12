@@ -33,3 +33,10 @@ Features expose `middleware(request, env, ctx, next, state)` and may short-circu
 requests, and optionally deliver server-side PostHog events. Use
 `assertBoot(env, { bindings: ["DB"], required: ["AUTH_SESSION_SECRET"] })` in a
 site initializer to fail closed when its Cloudflare configuration is incomplete.
+
+
+## Core operational services
+
+Apply `migrations/0002_core.sql` after the authorization migration. The package exports `registerHealthcheck`, `updateHealthcheck`, `registerCircuitBreaker`, `setCircuitBreaker`, and `evaluateCircuitBreaker` from `/cf-genai-base`. Healthchecks use `red`, `yellow` (unknown/transient), or `green`; breakers use `off`, `tripped`, or `on`, with `any` or `all` healthcheck evaluation. Automated evaluation may only move `on` to `tripped`, or self-healing `tripped` to `on`; admin API writes are the human control plane for the `off` state.
+
+Admin APIs are `GET /api/admin/healthchecks`, `PUT /api/admin/healthchecks/:id`, `GET /api/admin/circuit-breakers`, `GET|PUT /api/admin/circuit-breakers/:id`. Feature manifests may expose `healthchecks` and `circuitBreakers`. Use `createD1(env, { who })` for downstream D1 calls; it emits EventLog and AuditLog console records with the requesting actor.

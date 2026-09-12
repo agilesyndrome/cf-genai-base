@@ -3,6 +3,8 @@
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
 import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listUserGrants, replaceUserGrants } from "./authorization.js";
+import { getCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
+export * from "./core.js";
 export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
@@ -18,12 +20,14 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         if (boot) await boot(env, { request, ctx });
         const url = new URL(request.url);
         const state = Object.create(null);
+        if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(registerFeatureManifests(env, features, { who: "system:update" }).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
           const layer = chain[index];
           if (!layer) {
             if (url.pathname === "/health" || url.pathname === "/api/health") {
               const details = health ? await health(env, { request: currentRequest, ctx, state }) : {};
-              return healthResponse(env, details);
+              const featureHealth = env?.DB ? await listFeatureHealth(env, { who: "system:read" }).catch(() => []) : [];
+              return healthResponse(env, featureHealth.length ? { ...details, features: featureHealth } : details);
             }
             return fetch(currentRequest, env, ctx, state);
           }
@@ -58,10 +62,11 @@ async function adminBoundary(request, env, ctx, next, state, { provider, authori
   } else {
     return new Response("Unsupported AUTH_STRATEGY", { status: 500, headers: { "Cache-Control": "no-store" } });
   }
-  await ensureScopes(env, scopes);
-  state.authUser = await ensureUser(env, state.user);
+  await ensureScopes(env, scopes, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
+  state.authUser = await ensureUser(env, state.user, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
+  state.requestedBy = requestActor(state);
   const requiredScope = requiredScopeFor(url.pathname, scopeRoutes);
-  const scopeAllowed = !requiredScope || await hasScope(env, state.user, requiredScope);
+  const scopeAllowed = !requiredScope || await hasScope(env, state.user, requiredScope, { who: requestActor(state) });
   if (!scopeAllowed || (authorize && state.user.auth_strategy !== "http_basic" && !(await authorize({ request, url, user: state.user, env, ctx, state })))) {
     return url.pathname.startsWith("/api/") ? Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } }) : new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
   }
@@ -76,16 +81,24 @@ function requiredScopeFor(pathname, routes) {
 
 async function authorizationApi(request, env, url, state) {
   const grantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/scopes$/);
-  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || Boolean(grantsMatch);
+  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
   if (!platformPath) return null;
   if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
-  if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env) });
-  if (url.pathname === "/api/admin/scopes" && request.method === "GET") return Response.json({ scopes: await listAuthorizationScopes(env) });
-  if (grantsMatch && request.method === "GET") return Response.json({ grants: await listUserGrants(env, decodeURIComponent(grantsMatch[1])) });
+  if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/scopes" && request.method === "GET") return Response.json({ scopes: await listAuthorizationScopes(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/status" && request.method === "GET") return Response.json({ features: await listFeatureHealth(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/healthchecks" && request.method === "GET") return Response.json({ healthchecks: await listHealthchecks(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/circuit-breakers" && request.method === "GET") return Response.json({ circuit_breakers: await listCircuitBreakers(env, { who: requestActor(state) }) });
+  const healthcheckMatch = url.pathname.match(/\/api\/admin\/healthchecks\/([^/]+)$/);
+  if (healthcheckMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body?.state) return Response.json({ error: "state is required" }, { status: 400 }); const healthcheck = await updateHealthcheck(env, decodeURIComponent(healthcheckMatch[1]), body.state, { who: requestActor(state) }); return healthcheck ? Response.json({ healthcheck }) : Response.json({ error: "Healthcheck not found" }, { status: 404 }); }
+  const breakerMatch = url.pathname.match(/\/api\/admin\/circuit-breakers\/([^/]+)$/);
+  if (breakerMatch && request.method === "GET") return Response.json({ circuit_breaker: await getCircuitBreaker(env, decodeURIComponent(breakerMatch[1]), { who: requestActor(state) }) });
+  if (breakerMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body?.state) return Response.json({ error: "state is required" }, { status: 400 }); const breaker = await setCircuitBreaker(env, decodeURIComponent(breakerMatch[1]), body.state, { who: requestActor(state) }); return breaker ? Response.json({ circuit_breaker: breaker }) : Response.json({ error: "Circuit breaker not found" }, { status: 404 }); }
+  if (grantsMatch && request.method === "GET") return Response.json({ grants: await listUserGrants(env, decodeURIComponent(grantsMatch[1]), { who: requestActor(state) }) });
   if (grantsMatch && request.method === "PUT") {
     const body = await request.json().catch(() => null);
     if (!body || !Array.isArray(body.scopes)) return Response.json({ error: "scopes must be an array" }, { status: 400 });
-    const grants = await replaceUserGrants(env, decodeURIComponent(grantsMatch[1]), body.scopes, state.authUser && state.authUser.id);
+    const grants = await replaceUserGrants(env, decodeURIComponent(grantsMatch[1]), body.scopes, state.authUser && state.authUser.id, { who: requestActor(state) });
     return Response.json({ grants });
   }
   return null;

@@ -3,7 +3,7 @@ const styles = `:host { --cf-ui-bg:#fff; --cf-ui-surface:#f7f7f5; --cf-ui-text:#
 export class CfAdminShell extends HTMLElement {
   connectedCallback() {
     const active = this.getAttribute("active") || "";
-    this.attachShadow({ mode: "open" }).innerHTML = `<style>${styles}</style><div class="shell"><nav class="nav" part="navigation"><a href="/admin" ${active === "home" ? 'aria-current="page"' : ""}>Admin</a><a href="/admin/users" ${active === "users" ? 'aria-current="page"' : ""}>Users</a><a href="/admin/scopes" ${active === "scopes" ? 'aria-current="page"' : ""}>Scopes</a></nav><slot></slot></div>`;
+    this.attachShadow({ mode: "open" }).innerHTML = `<style>${styles}</style><div class="shell"><nav class="nav" part="navigation"><a href="/admin" ${active === "home" ? 'aria-current="page"' : ""}>Admin</a><a href="/admin/users" ${active === "users" ? 'aria-current="page"' : ""}>Users</a><a href="/admin/scopes" ${active === "scopes" ? 'aria-current="page"' : ""}>Scopes</a><a href="/admin/healthchecks">Healthchecks</a><a href="/admin/circuit-breakers">Circuit breakers</a></nav><slot></slot></div>`;
   }
 }
 
@@ -49,3 +49,14 @@ export class CfScopeCatalog extends HTMLElement {
 
 if (!customElements.get("cf-scope-catalog")) customElements.define("cf-scope-catalog", CfScopeCatalog);
 if (!customElements.get("cf-scope-catalog")) customElements.define("cf-scope-catalog", CfScopeCatalog);
+
+export class CfHealthcheckCatalog extends HTMLElement {
+  async connectedCallback() { this.attachShadow({ mode: "open" }).innerHTML = `<style>${styles}</style><section class="card"><h2>Healthchecks</h2><p class="status">Loading…</p><div class="list" hidden></div></section>`; try { const response = await fetch("/api/admin/healthchecks", { credentials: "same-origin" }); if (!response.ok) throw new Error("Unable to load healthchecks."); const items = (await response.json()).healthchecks || []; const list = this.shadowRoot.querySelector(".list"); list.replaceChildren(...items.map((item) => { const row = document.createElement("div"); row.textContent = `${item.display_name} — ${item.feature}/${item.component}: ${item.state}`; list.append(row); return row; })); list.hidden = false; this.shadowRoot.querySelector(".status").textContent = `${items.length} healthcheck${items.length === 1 ? "" : "s"}`; } catch (error) { this.shadowRoot.querySelector(".status").textContent = error.message; } }
+}
+
+export class CfCircuitBreakerCatalog extends HTMLElement {
+  async connectedCallback() { this.attachShadow({ mode: "open" }).innerHTML = `<style>${styles}</style><section class="card"><h2>Circuit breakers</h2><p class="status">Loading…</p><div class="list" hidden></div></section>`; try { const response = await fetch("/api/admin/circuit-breakers", { credentials: "same-origin" }); if (!response.ok) throw new Error("Unable to load circuit breakers."); const items = (await response.json()).circuit_breakers || []; const list = this.shadowRoot.querySelector(".list"); list.replaceChildren(...items.map((item) => { const row = document.createElement("div"); row.textContent = `${item.display_name} — ${item.feature}/${item.name}: ${item.state}`; list.append(row); return row; })); list.hidden = false; this.shadowRoot.querySelector(".status").textContent = `${items.length} circuit breaker${items.length === 1 ? "" : "s"}`; } catch (error) { this.shadowRoot.querySelector(".status").textContent = error.message; } }
+}
+
+if (!customElements.get("cf-healthcheck-catalog")) customElements.define("cf-healthcheck-catalog", CfHealthcheckCatalog);
+if (!customElements.get("cf-circuit-breaker-catalog")) customElements.define("cf-circuit-breaker-catalog", CfCircuitBreakerCatalog);

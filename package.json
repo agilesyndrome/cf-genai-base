@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.js",
     "./authorization": "./src/authorization.js",
+    "./core": "./src/core.js",
     "./ui": "./src/ui/index.js",
     "./ui/styles.css": "./src/ui/styles.css"
   },
