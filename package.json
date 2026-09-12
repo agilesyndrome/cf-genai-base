@@ -3,7 +3,10 @@
   "version": "0.1.5",
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./authorization": "./src/authorization.js",
+    "./ui": "./src/ui/index.js",
+    "./ui/styles.css": "./src/ui/styles.css"
   },
   "description": "Lean Worker lifecycle and security helpers for Cloudflare sites.",
   "license": "MIT",
@@ -13,6 +16,7 @@
   },
   "files": [
     "src",
+    "migrations",
     "README.md",
     "CONTRACT.md",
     "LICENSE"
@@ -24,7 +28,7 @@
   "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme",
   "scripts": {
     "check": "node --check src/index.js",
-    "test": "node --check src/index.js",
+    "test": "node --test tests/*.test.mjs",
     "build": "npm run check && npm test && npm pack --dry-run"
   }
 }

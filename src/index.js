@@ -2,9 +2,12 @@
  * Lean, opinionated Worker composition for Cloudflare sites.
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
-export function createWorker({ fetch, scheduled, auth, middleware = [], features = [], health, boot, metrics, security = true }) {
+import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listUserGrants, replaceUserGrants } from "./authorization.js";
+export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
+  const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
   const chain = [
+    (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes }),
     ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
     ...middleware,
     ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : []),
@@ -38,6 +41,85 @@ export function createWorker({ fetch, scheduled, auth, middleware = [], features
     ...(scheduled ? { scheduled } : {}),
   };
 }
+
+
+async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes }) {
+  const url = new URL(request.url);
+  if (!isAdminPath(url.pathname)) return next(request);
+  const strategy = String(env?.AUTH_STRATEGY || "http_basic").trim().toLowerCase();
+  if (strategy === "http_basic") {
+    const user = basicUser(request, env);
+    if (!user) return adminUnauthorized(request);
+    state.user = user;
+  } else if (strategy === "oauth") {
+    const user = provider?.getUser ? await provider.getUser(request, env) : null;
+    if (!user) return oauthUnauthorized(request, url);
+    state.user = user;
+  } else {
+    return new Response("Unsupported AUTH_STRATEGY", { status: 500, headers: { "Cache-Control": "no-store" } });
+  }
+  await ensureScopes(env, scopes);
+  state.authUser = await ensureUser(env, state.user);
+  const requiredScope = requiredScopeFor(url.pathname, scopeRoutes);
+  const scopeAllowed = !requiredScope || await hasScope(env, state.user, requiredScope);
+  if (!scopeAllowed || (authorize && state.user.auth_strategy !== "http_basic" && !(await authorize({ request, url, user: state.user, env, ctx, state })))) {
+    return url.pathname.startsWith("/api/") ? Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } }) : new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
+  const platformResponse = await authorizationApi(request, env, url, state);
+  return platformResponse || next(request);
+}
+
+function requiredScopeFor(pathname, routes) {
+  const route = routes.find((entry) => typeof entry.match === "function" ? entry.match(pathname) : pathname === entry.path || pathname.startsWith(String(entry.path || "") + "/"));
+  return route && route.scope ? route.scope : null;
+}
+
+async function authorizationApi(request, env, url, state) {
+  const grantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/scopes$/);
+  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || Boolean(grantsMatch);
+  if (!platformPath) return null;
+  if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env) });
+  if (url.pathname === "/api/admin/scopes" && request.method === "GET") return Response.json({ scopes: await listAuthorizationScopes(env) });
+  if (grantsMatch && request.method === "GET") return Response.json({ grants: await listUserGrants(env, decodeURIComponent(grantsMatch[1])) });
+  if (grantsMatch && request.method === "PUT") {
+    const body = await request.json().catch(() => null);
+    if (!body || !Array.isArray(body.scopes)) return Response.json({ error: "scopes must be an array" }, { status: 400 });
+    const grants = await replaceUserGrants(env, decodeURIComponent(grantsMatch[1]), body.scopes, state.authUser && state.authUser.id);
+    return Response.json({ grants });
+  }
+  return null;
+}
+
+function isAdminPath(pathname) {
+  return pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/api/admin" || pathname.startsWith("/api/admin/");
+}
+
+function basicUser(request, env) {
+  const token = String(env?.ADMIN_TOKEN || env?.admin_token || "");
+  if (!token) return null;
+  const header = request.headers.get("Authorization") || "";
+  if (!header.toLowerCase().startsWith("basic ")) return null;
+  let decoded;
+  try { decoded = atob(header.slice(6).trim()); } catch { return null; }
+  const separator = decoded.indexOf(":");
+  if (separator < 0) return null;
+  if (!constantTimeEqual(decoded.slice(0, separator), "admin") || !constantTimeEqual(decoded.slice(separator + 1), token)) return null;
+  return { sub: "basic:admin", email: "", name: "admin", roles: ["admin"], auth_strategy: "http_basic" };
+}
+
+function adminUnauthorized(request) {
+  const headers = { "Cache-Control": "no-store", "WWW-Authenticate": "Basic realm=\"admin\", charset=\"UTF-8\"" };
+  return new URL(request.url).pathname.startsWith("/api/") ? Response.json({ error: "Authentication is required." }, { status: 401, headers }) : new Response("Authentication is required.", { status: 401, headers });
+}
+
+function oauthUnauthorized(request, url) {
+  if (url.pathname.startsWith("/api/")) return Response.json({ error: "Authentication is required." }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  return Response.redirect(url.origin + "/auth/login?return_to=" + encodeURIComponent(safeReturnTo(url.pathname + url.search)), 302);
+}
+
+function safeReturnTo(value) { return value?.startsWith("/") && !value.startsWith("//") && !value.startsWith("/auth/") ? value : "/"; }
+function constantTimeEqual(a, b) { const aa = new TextEncoder().encode(a), bb = new TextEncoder().encode(b); let n = aa.length ^ bb.length; for (let i = 0; i < Math.max(aa.length, bb.length); i++) n |= (aa[i] || 0) ^ (bb[i] || 0); return n === 0; }
 
 export function validateBoot(env, { bindings = [], required = [] } = {}) {
   const missingBindings = bindings.filter((name) => !env?.[name]);

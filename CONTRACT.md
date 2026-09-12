@@ -4,7 +4,7 @@ Every site built from this foundation follows the same edge contract.
 
 ## Worker entrypoint
 
-`createWorker({ fetch, features?, middleware?, auth?, scheduled?, security? })` owns the Worker lifecycle. Features run in declaration order and may call `next()` or return a response. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
+`createWorker({ fetch, features?, middleware?, auth?, authorize?, scheduled?, security? })` owns the Worker lifecycle and reserved admin boundary. Features run in declaration order and may call `next()` or return a response. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
 is optional and must use `ctx.waitUntil` for background work.
 
 ## Routes
@@ -12,7 +12,12 @@ is optional and must use `ctx.waitUntil` for background work.
 - `GET /health` returns `{ ok, version, build_number }` and is cache-disabled.
 - `GET /api/me` returns `{ user: null | { sub, email, name, ...roles } }`.
 - `/auth/login`, `/auth/callback`, and `/auth/logout` are reserved for auth.
-- Public APIs must be explicitly listed in auth configuration.
+- `/admin` and `/admin/*` are browser admin routes; `/api/admin` and `/api/admin/*` are admin API routes.
+- Admin routes use `AUTH_STRATEGY`; omitted or empty means `http_basic`. Basic auth accepts username `admin` and the value of `ADMIN_TOKEN` (with `admin_token` supported for compatibility). Missing token means all admin routes return 401.
+- `AUTH_STRATEGY=oauth` delegates identity establishment to the configured auth provider and uses `authorize` for admin policy.
+- `scopes` registers an application scope manifest. `scopeRoutes` associates route prefixes or match functions with required scopes.
+- Base provides `/api/admin/users`, `/api/admin/scopes`, and `/api/admin/users/:id/scopes` for platform administrators when the authorization migration is installed.
+- Public APIs must be explicitly listed in provider-specific auth configuration.
 - Mutating `/api/*` requests require a same-origin `Origin` header.
 
 ## Environment and bindings
@@ -31,6 +36,10 @@ Standard bindings:
 - `R2_*`: optional R2 buckets for files or photos; use a descriptive suffix.
 
 Build metadata is optional: `BUILD_SHA` and `BUILD_NUMBER`.
+
+The package includes `migrations/0001_authorization.sql`; each site must apply
+the equivalent migration to its own D1 database before enabling the generic
+user/scope APIs.
 
 D1 migrations are committed with the site, applied by Wrangler, and are the
 source of truth for schema changes. R2 stores binary data; metadata and access

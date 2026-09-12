@@ -2,10 +2,16 @@
 
 Opinionated startup boilerplate for small Cloudflare Workers.
 
-The base is deliberately small: a site still owns its router, HTML, D1
-queries, R2 keys, and scheduled jobs. `createWorker` composes ordered feature middleware, normalizes uncaught failures, and applies baseline response headers.
+The base owns the shared security boundary as well as Worker lifecycle concerns. It reserves `/admin` and `/api/admin` routes, authenticates them using `AUTH_STRATEGY` (default `http_basic`, or `oauth` when an auth provider is supplied), and applies the optional `authorize` policy. Sites still own their router, HTML, D1 queries, R2 keys, and scheduled jobs.
 Use D1 bindings for durable application data and R2 bindings for binary assets;
 do not put either into module-level state.
+
+Base also provides provider-neutral authorization helpers and browser components
+through `@agilesyndrome/cf-genai-base/authorization` and
+`@agilesyndrome/cf-genai-base/ui`. Applications declare their scope manifest,
+while base owns the user, scope, and grant records plus the generic user-access
+API. The UI components are themeable with CSS custom properties and do not
+contain application-specific components.
 
 ```js
 import { createWorker, healthResponse } from "@agilesyndrome/cf-genai-base";
