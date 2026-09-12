@@ -3,7 +3,7 @@
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
 import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listUserGrants, replaceUserGrants } from "./authorization.js";
-import { getCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
+import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
 export * from "./core.js";
 export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
@@ -20,7 +20,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         if (boot) await boot(env, { request, ctx });
         const url = new URL(request.url);
         const state = Object.create(null);
-        if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(registerFeatureManifests(env, features, { who: "system:update" }).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
+        if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(registerFeatureManifests(env, features, { who: "system:update" }).then(() => listCircuitBreakers(env, { who: "system:update" }).then((breakers) => Promise.all(breakers.filter(Boolean).map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who: "system:update" }))))).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
           const layer = chain[index];
           if (!layer) {

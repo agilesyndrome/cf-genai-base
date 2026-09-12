@@ -36,7 +36,7 @@ export function createD1(env, { who = "system:read" } = {}) {
     },
     async batch(statements) {
       auditD1(who, "BATCH");
-      return db.batch(statements);
+      return typeof db.batch === "function" ? db.batch(statements) : Promise.all(statements.map((statement) => statement.run()));
     },
   };
 }
