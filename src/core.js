@@ -1,6 +1,8 @@
 export const HEALTHCHECK_STATES = ["red", "yellow", "green"];
 export const CIRCUIT_BREAKER_STATES = ["off", "tripped", "on"];
 export const HEALTHCHECK_MODES = ["any", "all"];
+export const BASE_PACKAGE_NAME = "@agilesyndrome/cf-genai-base";
+export const BASE_VERSION = "1.0.3";
 
 export function eventLog(level, event, details = {}) {
   const method = ["debug", "info", "warn", "error"].includes(level) ? level : "info";
@@ -142,4 +144,38 @@ export async function listFeatureHealth(env, { who = "system:read" } = {}) {
   const features = {};
   for (const check of checks) { const name = check.feature; if (!features[name] || severity[check.state] > severity[features[name].state]) features[name] = { feature: name, state: check.state, healthchecks: 0 }; features[name].healthchecks += 1; }
   return Object.values(features).sort((a, b) => a.feature.localeCompare(b.feature));
+}
+
+
+export function normalizeFeatureManifest(feature = {}) {
+  const source = feature && typeof feature === "object" ? feature : {};
+  const manifest = source.manifest && typeof source.manifest === "object" ? source.manifest : source;
+  const name = String(source.name || source.id || manifest.name || "feature");
+  const packageName = source.packageName || source.package_name || source.package || manifest.packageName || manifest.package_name || manifest.package;
+  const version = source.version || source.packageVersion || source.package_version || manifest.version;
+  return {
+    feature: name,
+    display_name: String(source.displayName || source.display_name || manifest.displayName || manifest.display_name || name),
+    package_name: packageName ? String(packageName) : null,
+    version: version ? String(version) : null,
+  };
+}
+
+export async function listFeatureCatalog(env, features = [], { who = "system:read" } = {}) {
+  const [healthchecks, circuitBreakers] = await Promise.all([listHealthchecks(env, { who }), listCircuitBreakers(env, { who })]);
+  const manifests = new Map([["base", { feature: "base", display_name: "Base platform", package_name: BASE_PACKAGE_NAME, version: BASE_VERSION }]]);
+  for (const feature of features) {
+    const manifest = normalizeFeatureManifest(feature);
+    manifests.set(manifest.feature, manifest);
+  }
+  for (const item of healthchecks) if (!manifests.has(item.feature)) manifests.set(item.feature, normalizeFeatureManifest({ name: item.feature }));
+  for (const item of circuitBreakers) if (!manifests.has(item.feature)) manifests.set(item.feature, normalizeFeatureManifest({ name: item.feature }));
+  const severity = { green: 0, yellow: 1, red: 2 };
+  const state = (items) => items.reduce((current, item) => severity[item.state] > severity[current] ? item.state : current, "green");
+  return [...manifests.values()].sort((a, b) => a.feature.localeCompare(b.feature)).map((manifest) => {
+    const featureHealthchecks = healthchecks.filter((item) => item.feature === manifest.feature);
+    const featureBreakers = circuitBreakers.filter((item) => item.feature === manifest.feature);
+    const rollup = featureBreakers.find((item) => item.name === "rollup") || null;
+    return { ...manifest, health: featureHealthchecks.length ? state(featureHealthchecks) : "yellow", healthchecks: featureHealthchecks, circuit_breakers: featureBreakers, circuit_breaker: rollup };
+  });
 }

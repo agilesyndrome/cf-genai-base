@@ -4,7 +4,7 @@ const styles = `:host { --cf-ui-bg:#fff; --cf-ui-surface:#f7f7f5; --cf-ui-text:#
 export class CfAdminShell extends HTMLElement {
   connectedCallback() {
     const active = this.getAttribute("active") || "";
-    this.attachShadow({ mode: "open" }).innerHTML = `<style>${styles}</style><div class="shell"><nav class="nav" part="navigation"><a href="/admin" ${active === "home" ? 'aria-current="page"' : ""}>Admin</a><a href="/admin/users" ${active === "users" ? 'aria-current="page"' : ""}>Users</a><a href="/admin/scopes" ${active === "scopes" ? 'aria-current="page"' : ""}>Scopes</a><a href="/admin/healthchecks">Healthchecks</a><a href="/admin/circuit-breakers">Circuit breakers</a><a href="/admin/groups">Groups</a></nav><slot></slot></div>`;
+    this.attachShadow({ mode: "open" }).innerHTML = `<style>${styles}</style><div class="shell"><nav class="nav" part="navigation"><a href="/admin" ${active === "home" ? 'aria-current="page"' : ""}>Admin</a><a href="/admin/users" ${active === "users" ? 'aria-current="page"' : ""}>Users</a><a href="/admin/scopes" ${active === "scopes" ? 'aria-current="page"' : ""}>Scopes</a><a href="/admin/features">Features</a><a href="/admin/healthchecks">Healthchecks</a><a href="/admin/circuit-breakers">Circuit breakers</a><a href="/admin/groups">Groups</a></nav><slot></slot></div>`;
   }
 }
 

@@ -3,13 +3,13 @@
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
 import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants } from "./authorization.js";
-import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
+import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
 export * from "./core.js";
 export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
   const chain = [
-    (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes }),
+    (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features }),
     ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
     ...middleware,
     ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : []),
@@ -47,7 +47,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
 }
 
 
-async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes }) {
+async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features }) {
   const url = new URL(request.url);
   if (!isAdminPath(url.pathname)) return next(request);
   const strategy = String(env?.AUTH_STRATEGY || "http_basic").trim().toLowerCase();
@@ -70,8 +70,13 @@ async function adminBoundary(request, env, ctx, next, state, { provider, authori
   if (!scopeAllowed || (authorize && state.user.auth_strategy !== "http_basic" && !(await authorize({ request, url, user: state.user, env, ctx, state })))) {
     return url.pathname.startsWith("/api/") ? Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } }) : new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
   }
-  const platformResponse = await authorizationApi(request, env, url, state);
-  return platformResponse || next(request);
+  const platformResponse = await authorizationApi(request, env, url, state, features);
+  if (platformResponse) return platformResponse;
+  if (url.pathname === "/admin/features" && request.method === "GET") {
+    if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
+    return featureCatalogPage(env, features, state);
+  }
+  return next(request);
 }
 
 function requiredScopeFor(pathname, routes) {
@@ -79,14 +84,15 @@ function requiredScopeFor(pathname, routes) {
   return route && route.scope ? route.scope : null;
 }
 
-async function authorizationApi(request, env, url, state) {
+async function authorizationApi(request, env, url, state, features = []) {
   const grantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/scopes$/);
-  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
+  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/features" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
   if (!platformPath) return null;
   if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/scopes" && request.method === "GET") return Response.json({ scopes: await listAuthorizationScopes(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/status" && request.method === "GET") return Response.json({ features: await listFeatureHealth(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/features" && request.method === "GET") return Response.json({ features: await listFeatureCatalog(env, features, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/groups" && request.method === "GET") return Response.json({ groups: await listGroups(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/healthchecks" && request.method === "GET") return Response.json({ healthchecks: await listHealthchecks(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/circuit-breakers" && request.method === "GET") return Response.json({ circuit_breakers: await listCircuitBreakers(env, { who: requestActor(state) }) });
@@ -189,3 +195,22 @@ async function track(env, event, properties, { tokenEnv, host }) {
     console.error("[metrics] delivery failed", error);
   }
 }
+
+
+async function featureCatalogPage(env, features, state) {
+  const catalog = await listFeatureCatalog(env, features, { who: requestActor(state) });
+  return new Response(featureCatalogMarkup(catalog), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+function featureCatalogMarkup(catalog) {
+  const rows = catalog.map((item) => {
+    const checks = item.healthchecks.length ? "<ul>" + item.healthchecks.map((check) => "<li><strong>" + escapeHtml(check.display_name) + "</strong>: " + escapeHtml(check.state) + "</li>").join("") + "</ul>" : "<span>None registered</span>";
+    const breakers = item.circuit_breakers.length ? "<ul>" + item.circuit_breakers.map((breaker) => "<li><strong>" + escapeHtml(breaker.display_name) + "</strong>: " + escapeHtml(breaker.state) + "</li>").join("") + "</ul>" : "<span>None registered</span>";
+    const packageLabel = item.package_name ? escapeHtml(item.package_name) : "Unknown package";
+    const versionLabel = item.version ? escapeHtml(item.version) : "Unknown version";
+    return "<tr><td><strong>" + escapeHtml(item.display_name) + "</strong><br><code>" + escapeHtml(item.feature) + "</code></td><td>" + packageLabel + "<br>" + versionLabel + "</td><td><span class=\"state state-" + escapeHtml(item.health) + "\">" + escapeHtml(item.health) + "</span></td><td>" + (item.circuit_breaker ? escapeHtml(item.circuit_breaker.state) : "None") + "</td><td>" + checks + "</td><td>" + breakers + "</td></tr>";
+  }).join("");
+  return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Features</title><style>body{font:15px/1.45 system-ui,sans-serif;color:#20231f;background:#f7f7f5;margin:0;padding:2rem}main{max-width:1200px;margin:auto;background:#fff;padding:1.5rem;border:1px solid #d8ddd5;border-radius:.6rem}nav{display:flex;gap:1rem;margin-bottom:1.5rem}a{color:#2f6f52}table{width:100%;border-collapse:collapse}th,td{padding:.7rem;border-bottom:1px solid #d8ddd5;text-align:left;vertical-align:top}th{font-size:.8rem;color:#687067;text-transform:uppercase}ul{margin:.25rem 0;padding-left:1.2rem}code{color:#687067}.state{font-weight:700}.state-green{color:#26734d}.state-yellow{color:#9a6b00}.state-red{color:#b3261e}</style></head><body><main><nav><a href=\"/admin\">Admin</a><a href=\"/admin/features\" aria-current=\"page\">Features</a><a href=\"/admin/users\">Users</a><a href=\"/admin/groups\">Groups</a></nav><h1>Installed features</h1><p>Runtime modules, package versions, healthchecks, and circuit breakers.</p><table><thead><tr><th>Feature</th><th>Package/version</th><th>Health</th><th>Roll-up breaker</th><th>Healthchecks</th><th>Circuit breakers</th></tr></thead><tbody>" + rows + "</tbody></table></main></body></html>";
+}
+
+function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll(String.fromCharCode(39), "&#39;"); }
