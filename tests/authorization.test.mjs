@@ -95,3 +95,19 @@ test("admin feature page renders the feature catalog", async () => {
   assert.match(html, /Installed features/);
   assert.match(html, /llm-package/);
 });
+
+test("sites can render all platform admin pages through the shared boundary", async () => {
+  const worker = createWorker({ adminPage: ({ url }) => new Response(`site page: ${url.pathname}`), fetch: async () => new Response("site") });
+  for (const pathname of ["/admin/users", "/admin/features", "/admin/healthchecks", "/admin/circuit-breakers", "/admin/groups"]) {
+    const response = await worker.fetch(new Request(`https://example.test${pathname}`, { headers: { Authorization: "Basic " + btoa("admin:secret") } }), { ADMIN_TOKEN: "secret" }, ctx);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), new RegExp(pathname));
+  }
+});
+
+test("sites can reserve an explicit site admin namespace", async () => {
+  const worker = createWorker({ siteAdminPage: ({ url }) => new Response(`site page: ${url.pathname}`), fetch: async () => new Response("site") });
+  const response = await worker.fetch(new Request("https://example.test/admin/site/settings", { headers: { Authorization: "Basic " + btoa("admin:secret") } }), { ADMIN_TOKEN: "secret" }, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "site page: /admin/site/settings");
+});

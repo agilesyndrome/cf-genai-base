@@ -5,11 +5,11 @@
 import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants } from "./authorization.js";
 import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
 export * from "./core.js";
-export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true }) {
+export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
   const chain = [
-    (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features }),
+            (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features, adminPage, siteAdminPage }),
     ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
     ...middleware,
     ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : []),
@@ -47,7 +47,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
 }
 
 
-async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features }) {
+async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features, adminPage, siteAdminPage }) {
   const url = new URL(request.url);
   if (!isAdminPath(url.pathname)) return next(request);
   const strategy = String(env?.AUTH_STRATEGY || "http_basic").trim().toLowerCase();
@@ -72,11 +72,28 @@ async function adminBoundary(request, env, ctx, next, state, { provider, authori
   }
   const platformResponse = await authorizationApi(request, env, url, state, features);
   if (platformResponse) return platformResponse;
+  if (request.method === "GET" && isSiteAdminPage(url.pathname) && typeof siteAdminPage === "function") {
+    const response = await siteAdminPage({ request, env, url, state, features });
+    if (response) return response;
+  }
+  if (request.method === "GET" && isPlatformAdminPage(url.pathname) && typeof adminPage === "function") {
+    if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
+    const response = await adminPage({ request, env, url, state, features });
+    if (response) return response;
+  }
   if (url.pathname === "/admin/features" && request.method === "GET") {
     if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
     return featureCatalogPage(env, features, state);
   }
   return next(request);
+}
+
+function isPlatformAdminPage(pathname) {
+  return ["/admin/users", "/admin/scopes", "/admin/groups", "/admin/features", "/admin/healthchecks", "/admin/circuit-breakers"].includes(pathname);
+}
+
+function isSiteAdminPage(pathname) {
+  return pathname === "/admin/site" || pathname.startsWith("/admin/site/");
 }
 
 function requiredScopeFor(pathname, routes) {

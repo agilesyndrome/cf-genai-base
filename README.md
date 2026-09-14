@@ -27,6 +27,17 @@ export default createWorker({
 
 Features expose `middleware(request, env, ctx, next, state)` and may short-circuit reserved routes, attach request state, or call `next()`.
 
+Sites may provide `adminPage({ request, env, url, state, features })` to render
+the shared platform pages (`/admin/users`, `/admin/scopes`, `/admin/groups`,
+`/admin/features`, `/admin/healthchecks`, and `/admin/circuit-breakers`) inside
+their own shell. The callback runs after the shared authorization boundary and
+must return a `Response` or `null`.
+
+Sites may separately provide `siteAdminPage({ request, env, url, state,
+features })` for a `/admin/site/*` namespace. This is useful when a site wants
+its own admin pages to have an explicit boundary beside the shared platform
+pages.
+
 ## Shared platform helpers
 
 `createWorker` can own `/health` and `/api/health`, run a boot validator before
