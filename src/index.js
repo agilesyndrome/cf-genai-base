@@ -4,10 +4,13 @@
  */
 import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants } from "./authorization.js";
 import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
+import { createDataReader, DataScopeError, normalizeDataResources, requestDataContext } from "./data.js";
 export * from "./core.js";
-export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], health, boot, metrics, security = true, adminPage, siteAdminPage }) {
+export * from "./data.js";
+export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], dataResources = [], health, boot, metrics, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
+  const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : [])]);
   const chain = [
             (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features, adminPage, siteAdminPage }),
     ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
@@ -20,6 +23,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         if (boot) await boot(env, { request, ctx });
         const url = new URL(request.url);
         const state = Object.create(null);
+        state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request }) });
         if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(registerFeatureManifests(env, features, { who: "system:update" }).then(() => listCircuitBreakers(env, { who: "system:update" }).then((breakers) => Promise.all(breakers.filter(Boolean).map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who: "system:update" }))))).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
           const layer = chain[index];
@@ -39,6 +43,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         return security ? secureResponse(response) : response;
       } catch (error) {
         console.error("[worker] request failed", error);
+        if (error instanceof DataScopeError) return secureResponse(Response.json({ error: "Data access is not permitted." }, { status: 403, headers: { "Cache-Control": "no-store" } }));
         return secureResponse(Response.json({ error: "Internal server error" }, { status: 500, headers: { "Cache-Control": "no-store" } }));
       }
     },

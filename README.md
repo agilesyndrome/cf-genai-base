@@ -59,6 +59,11 @@ Admin APIs are `GET /api/admin/healthchecks`, `PUT /api/admin/healthchecks/:id`,
 
 ## User administration
 
+Apply `migrations/0004_tenants.sql` after the authorization migration to add
+tenant membership and subscriptions. It creates the `Easley Family` tenant,
+the `VIP` subscription, associates them, migrates all existing users into the
+tenant, and keeps newly provisioned users attached to it.
+
 Use the selected D1 target (local by default) to inspect and update users:
 
     cf-genai user list --target local
@@ -66,3 +71,22 @@ Use the selected D1 target (local by default) to inspect and update users:
     cf-genai user update someone.com --roles admin --target production
 
 `user:get` also reports scopes and groups. The user update command resolves an email, subject, or internal id and supports `admin` or `none` roles. Production commands should be run through the repository credentials wrapper and reviewed as an administrative change.
+
+## Scoped data access
+
+Features may register D1 resources with `dataResources` and receive the
+scoped reader on the request state as `state.data`. Resources declare `user`,
+`tenant`, or `system` scope, their physical table, and an explicit column
+allowlist. Use `state.data.tenant`, `state.data.user`, or `state.data.system`;
+the reader applies ownership predicates, supports bounded cursor pagination via
+`.page()`, and never accepts raw SQL. Resources can explicitly restrict their
+operations to `read`, `create`, `update`, and `delete`.
+
+For example, a tenant-owned resource registers its `tenant_id` column with
+base, while feature code calls `state.data.tenant.list("recipes")` without
+passing a tenant ID. The active tenant must be a validated membership. A
+resource used with the wrong scope returns no rows; writes fail closed.
+
+Applications using scoped data must stop passing unrestricted `env.DB` to
+domain features. Their migrations still add and backfill ownership columns,
+and their resources must be registered with base.

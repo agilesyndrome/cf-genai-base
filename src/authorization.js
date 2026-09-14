@@ -3,6 +3,10 @@ import { createD1 } from "./core.js";
 export const AUTH_USER_TABLE = "auth_users";
 export const AUTH_SCOPE_TABLE = "auth_scopes";
 export const AUTH_GRANT_TABLE = "auth_user_scopes";
+export const DEFAULT_TENANT_ID = "easley-family";
+export const DEFAULT_TENANT_NAME = "Easley Family";
+export const DEFAULT_SUBSCRIPTION_ID = "vip";
+export const DEFAULT_SUBSCRIPTION_NAME = "VIP";
 
 export function normalizeScopes(scopes = []) {
   return scopes.map((scope) => typeof scope === "string" ? { name: scope, label: scope, description: "", system: false } : scope)
@@ -28,11 +32,34 @@ export async function ensureUser(env, user, { who = "system:read" } = {}) {
   const bootstrap = new Set(String(env.AUTH_ADMIN_EMAILS || env.ADMIN_EMAILS || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
   if (existing) {
     await db.prepare(`UPDATE ${AUTH_USER_TABLE} SET email=?,display_name=?,is_admin=CASE WHEN is_admin=1 OR ? THEN 1 ELSE 0 END,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(email, String(user.name || email || subject), bootstrap.has(email) ? 1 : 0, existing.id).run();
+    await ensureDefaultTenantMembership(db, existing.id);
     return { ...existing, email, display_name: String(user.name || email || subject), is_admin: Boolean(existing.is_admin || bootstrap.has(email)) };
   }
   const id = await stableId(`${provider}:${subject}`);
   await db.prepare(`INSERT INTO ${AUTH_USER_TABLE} (id,provider,subject,email,display_name,is_admin) VALUES (?,?,?,?,?,?) ON CONFLICT(provider,subject) DO NOTHING`).bind(id, provider, subject, email, String(user.name || email || subject), bootstrap.has(email) ? 1 : 0).run();
+  await ensureDefaultTenantMembership(db, id);
   return await db.prepare(`SELECT * FROM ${AUTH_USER_TABLE} WHERE id=?`).bind(id).first();
+}
+
+async function ensureDefaultTenantMembership(db, userId) {
+  await db.batch([
+    db.prepare("INSERT OR IGNORE INTO auth_tenants (id,name) VALUES (?,?)").bind(DEFAULT_TENANT_ID, DEFAULT_TENANT_NAME),
+    db.prepare("INSERT OR IGNORE INTO auth_subscriptions (id,name) VALUES (?,?)").bind(DEFAULT_SUBSCRIPTION_ID, DEFAULT_SUBSCRIPTION_NAME),
+    db.prepare("INSERT OR IGNORE INTO auth_tenant_subscriptions (tenant_id,subscription_id) VALUES (?,?)").bind(DEFAULT_TENANT_ID, DEFAULT_SUBSCRIPTION_ID),
+    db.prepare("INSERT OR IGNORE INTO auth_user_tenants (user_id,tenant_id) VALUES (?,?)").bind(userId, DEFAULT_TENANT_ID)
+  ]);
+}
+
+export async function listUserTenants(env, userId, { who = "system:read" } = {}) {
+  const db = createD1(env, { who });
+  const { results } = await db.prepare(`SELECT t.id,t.name,t.created_at,t.updated_at FROM auth_tenants t JOIN auth_user_tenants ut ON ut.tenant_id=t.id WHERE ut.user_id=? ORDER BY t.name COLLATE NOCASE`).bind(userId).all();
+  return results || [];
+}
+
+export async function listTenantSubscriptions(env, tenantId, { who = "system:read" } = {}) {
+  const db = createD1(env, { who });
+  const { results } = await db.prepare(`SELECT s.id,s.name,s.created_at,s.updated_at FROM auth_subscriptions s JOIN auth_tenant_subscriptions ts ON ts.subscription_id=s.id WHERE ts.tenant_id=? ORDER BY s.name COLLATE NOCASE`).bind(tenantId).all();
+  return results || [];
 }
 
 export async function hasScope(env, user, scope, { who = "system:read" } = {}) {

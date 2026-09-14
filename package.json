@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.js",
     "./authorization": "./src/authorization.js",
+    "./data": "./src/data.js",
     "./core": "./src/core.js",
     "./ui": "./src/ui/index.js",
     "./ui/styles.css": "./src/ui/styles.css"
@@ -28,7 +29,7 @@
   },
   "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme",
   "scripts": {
-    "check": "node --check src/index.js && node --check src/core.js && node --check src/authorization.js",
+    "check": "node --check src/index.js && node --check src/core.js && node --check src/authorization.js && node --check src/data.js",
     "test": "node --test tests/*.test.mjs",
     "build": "npm run check && npm test && npm pack --dry-run"
   }

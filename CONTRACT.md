@@ -39,9 +39,11 @@ Standard bindings:
 
 Build metadata is optional: `BUILD_SHA` and `BUILD_NUMBER`.
 
-The package includes `migrations/0001_authorization.sql`; each site must apply
-the equivalent migration to its own D1 database before enabling the generic
-user/scope APIs.
+The package includes ordered migrations. Each site must apply
+`migrations/0001_authorization.sql` before enabling the generic user/scope APIs
+and `migrations/0004_tenants.sql` for tenant membership and subscriptions.
+The tenant migration seeds the `Easley Family` tenant and `VIP` subscription,
+and migrates existing authorization users into that tenant.
 
 D1 migrations are committed with the site, applied by Wrangler, and are the
 source of truth for schema changes. R2 stores binary data; metadata and access
@@ -52,3 +54,22 @@ control remain in D1.
 Auth returns a stable `sub`, normalized lowercase `email`, and display `name`.
 Applications may add roles or an internal D1 user id in `onLogin`; authorization
 must remain in the application router rather than in the shared auth package.
+
+## Scoped data contract
+
+`createWorker` accepts `dataResources`, and features may expose the same
+manifest through `feature.dataResources`. Each resource must declare a safe
+name, table, explicit columns, and one scope: `user`, `tenant`, or `system`.
+Resources may also declare allowed operations (`read`, `create`, `update`, and
+`delete`); reads support bounded cursor pagination through `reader.page()`.
+Request handlers receive `state.data`, whose scope-specific readers apply the
+validated user or tenant predicate. Domain handlers must not use unrestricted
+`env.DB` for registered resources. Base cannot provide row-level security to
+direct D1 calls, so applications must keep raw database access out of domain
+features. The cookbook migration must add and backfill `tenant_id` on recipe
+tables, register recipes as tenant-scoped, replace direct D1 reads/writes with
+`state.data.tenant`, and add cross-tenant isolation tests. The companion
+`cf-genai-cli` should lint `cf-genai-*` working folders for direct
+`env.DB.prepare(` usage as a follow-up enforcement check.
+Scoped write violations are returned as a generic 403 response; the detailed
+scope/resource identity is retained in the audit log only.

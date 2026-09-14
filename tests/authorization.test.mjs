@@ -1,9 +1,47 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorker } from "../src/index.js";
-import { normalizeScopes } from "../src/authorization.js";
+import { DEFAULT_SUBSCRIPTION_ID, DEFAULT_TENANT_ID, ensureUser, normalizeScopes } from "../src/authorization.js";
+import fs from "node:fs/promises";
 
 const ctx = { waitUntil() {} };
+
+test("tenant migration seeds the default tenant and migrates existing users", async () => {
+  const migration = await fs.readFile(new URL("../migrations/0004_tenants.sql", import.meta.url), "utf8");
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS auth_tenants/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS auth_subscriptions/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS auth_tenant_subscriptions/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS auth_user_tenants/);
+  assert.match(migration, /'easley-family', 'Easley Family'/);
+  assert.match(migration, /'vip', 'VIP'/);
+  assert.match(migration, /SELECT id, 'easley-family' FROM auth_users/);
+});
+
+test("new authorization users are attached to the default tenant and subscription", async () => {
+  const statements = [];
+  const user = { id: "user-1", provider: "oauth", subject: "subject-1", email: "person@example.test", display_name: "Person", is_admin: 0 };
+  const db = {
+    prepare(sql) {
+      const statement = {
+        bind(...args) { this.args = args; return this; },
+        async first() {
+          if (sql.includes("SELECT * FROM auth_users WHERE provider")) return null;
+          if (sql.includes("SELECT * FROM auth_users WHERE id")) return user;
+          return null;
+        },
+        async run() { statements.push({ sql, args: this.args }); return {}; },
+      };
+      return statement;
+    },
+    async batch(items) { statements.push(...items.map((item) => ({ sql: item.sql, args: item.args }))); },
+  };
+  // The D1 wrapper passes the SQL only to the underlying statement; expose it for this test double.
+  const originalPrepare = db.prepare;
+  db.prepare = (sql) => Object.assign(originalPrepare.call(db, sql), { sql });
+  const result = await ensureUser({ DB: db }, { sub: "subject-1", email: user.email, name: user.display_name });
+  assert.equal(result.id, user.id);
+  assert.deepEqual(statements.slice(1).map((item) => item.args), [[DEFAULT_TENANT_ID, "Easley Family"], [DEFAULT_SUBSCRIPTION_ID, "VIP"], [DEFAULT_TENANT_ID, DEFAULT_SUBSCRIPTION_ID], [statements[0].args[0], DEFAULT_TENANT_ID]]);
+});
 
 test("base leaves public routes public and protects admin routes by default", async () => {
   const worker = createWorker({ fetch: async () => new Response("ok") });
