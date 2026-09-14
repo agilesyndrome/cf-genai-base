@@ -38,6 +38,10 @@ features })` for a `/admin/site/*` namespace. This is useful when a site wants
 its own admin pages to have an explicit boundary beside the shared platform
 pages.
 
+The shared `<cf-admin-shell>` accepts an optional `cookbook-links` attribute
+containing semicolon-separated `Label|URL|active-key` entries. This lets a site
+replace the default Cookbook links while keeping the System links consistent.
+
 ## Shared platform helpers
 
 `createWorker` can own `/health` and `/api/health`, run a boot validator before
