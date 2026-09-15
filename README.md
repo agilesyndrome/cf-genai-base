@@ -70,7 +70,7 @@ Use the selected D1 target (local by default) to inspect and update users:
     cf-genai user get someone.com --target staging
     cf-genai user update someone.com --roles admin --target production
 
-`user:get` also reports scopes and groups. The user update command resolves an email, subject, or internal id and supports `admin` or `none` roles. Production commands should be run through the repository credentials wrapper and reviewed as an administrative change.
+`user:get` also reports scopes, groups, and tenant memberships. The shared admin user page displays each user’s tenant memberships and lets an administrator attach or detach tenants. The admin API exposes `GET|POST /api/admin/tenants`, `GET|PUT /api/admin/tenants/:id`, and `GET|PUT /api/admin/users/:id/tenants`. Production commands should be run through the repository credentials wrapper and reviewed as an administrative change.
 
 ## Scoped data access
 

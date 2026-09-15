@@ -2,7 +2,7 @@
  * Lean, opinionated Worker composition for Cloudflare sites.
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
-import { createImpersonationToken, ensureScopes, ensureSubscriptionManifest, ensureUser, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listTenantSubscriptions, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants, SubscriptionError } from "./authorization.js";
+import { createAuthorizationTenant, createImpersonationToken, ensureScopes, ensureSubscriptionManifest, ensureUser, getAuthorizationTenant, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationTenants, listAuthorizationUsers, listGroups, listTenantSubscriptions, listUserGroups, listUserTenants, listUserGrants, replaceUserGroups, replaceUserTenants, replaceUserGrants, SubscriptionError, updateAuthorizationTenant } from "./authorization.js";
 import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
 import { createDataReader, DataScopeError, normalizeDataResources, requestDataContext } from "./data.js";
 export * from "./core.js";
@@ -152,11 +152,16 @@ function requiredScopeFor(pathname, routes) {
 
 async function authorizationApi(request, env, url, state, features = []) {
   const grantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/scopes$/);
-  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname.startsWith("/api/admin/impersonate") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/features" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
+  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/tenants" || url.pathname.startsWith("/api/admin/tenants/") || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname.startsWith("/api/admin/impersonate") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/features" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
   if (!platformPath) return null;
   if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   if (url.pathname === "/api/admin/impersonate/clear" && request.method === "POST") return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json; charset=utf-8", "Set-Cookie": "__Host-cfgenai_impersonation=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax" } });
   if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/tenants" && request.method === "GET") return Response.json({ tenants: await listAuthorizationTenants(env, { who: requestActor(state) }) });
+  if (url.pathname === "/api/admin/tenants" && request.method === "POST") { const body = await request.json().catch(() => null); if (!body?.id || !body?.name) return Response.json({ error: "id and name are required" }, { status: 400 }); try { return Response.json({ tenant: await createAuthorizationTenant(env, body.id, body.name, { who: requestActor(state) }) }, { status: 201 }); } catch (error) { return Response.json({ error: error.message }, { status: 400 }); } }
+  const tenantMatch = url.pathname.match(/^\/api\/admin\/tenants\/([^/]+)$/);
+  if (tenantMatch && request.method === "GET") return Response.json({ tenant: await getAuthorizationTenant(env, decodeURIComponent(tenantMatch[1]), { who: requestActor(state) }) });
+  if (tenantMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body?.name) return Response.json({ error: "name is required" }, { status: 400 }); return Response.json({ tenant: await updateAuthorizationTenant(env, decodeURIComponent(tenantMatch[1]), body.name, { who: requestActor(state) }) }); }
   const impersonateMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/impersonate$/);
   if (impersonateMatch && request.method === "POST") {
     const target = decodeURIComponent(impersonateMatch[1]);
@@ -179,6 +184,9 @@ async function authorizationApi(request, env, url, state, features = []) {
   const groupsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/groups$/);
   if (groupsMatch && request.method === "GET") return Response.json({ groups: await listUserGroups(env, decodeURIComponent(groupsMatch[1]), { who: requestActor(state) }) });
   if (groupsMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body || !Array.isArray(body.groups)) return Response.json({ error: "groups must be an array" }, { status: 400 }); return Response.json({ groups: await replaceUserGroups(env, decodeURIComponent(groupsMatch[1]), body.groups, state.authUser && state.authUser.id, { who: requestActor(state) }) }); }
+  const tenantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/tenants$/);
+  if (tenantsMatch && request.method === "GET") return Response.json({ tenants: await listUserTenants(env, decodeURIComponent(tenantsMatch[1]), { who: requestActor(state) }) });
+  if (tenantsMatch && request.method === "PUT") { const body = await request.json().catch(() => null); if (!body || !Array.isArray(body.tenants)) return Response.json({ error: "tenants must be an array" }, { status: 400 }); return Response.json({ tenants: await replaceUserTenants(env, decodeURIComponent(tenantsMatch[1]), body.tenants, { who: requestActor(state) }) }); }
   if (grantsMatch && request.method === "GET") return Response.json({ grants: await listUserGrants(env, decodeURIComponent(grantsMatch[1]), { who: requestActor(state) }) });
   if (grantsMatch && request.method === "PUT") {
     const body = await request.json().catch(() => null);
