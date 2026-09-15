@@ -2,12 +2,13 @@
  * Lean, opinionated Worker composition for Cloudflare sites.
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
-import { ensureScopes, ensureUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants } from "./authorization.js";
+import { createImpersonationToken, ensureScopes, ensureSubscriptionManifest, ensureUser, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationUsers, listGroups, listTenantSubscriptions, listUserGroups, listUserGrants, replaceUserGroups, replaceUserGrants, SubscriptionError } from "./authorization.js";
 import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
 import { createDataReader, DataScopeError, normalizeDataResources, requestDataContext } from "./data.js";
 export * from "./core.js";
 export * from "./data.js";
-export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], scopeRoutes = [], middleware = [], features = [], dataResources = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
+export * from "./authorization.js";
+export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], middleware = [], features = [], dataResources = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
   const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : [])]);
@@ -21,8 +22,10 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
     async fetch(request, env, ctx) {
       try {
         if (boot) await boot(env, { request, ctx });
+        if (subscriptionManifest.length) await ensureSubscriptionManifest(env, subscriptionManifest, { who: "system:update" });
         const url = new URL(request.url);
         const state = Object.create(null);
+        if (provider?.getUser) state.user = await provider.getUser(request, env).catch(() => null);
         state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request, publicTenantId }) });
         if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(registerFeatureManifests(env, features, { who: "system:update" }).then(() => listCircuitBreakers(env, { who: "system:update" }).then((breakers) => Promise.all(breakers.filter(Boolean).map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who: "system:update" }))))).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
@@ -32,6 +35,12 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
               const details = health ? await health(env, { request: currentRequest, ctx, state }) : {};
               const featureHealth = env?.DB ? await listFeatureHealth(env, { who: "system:read" }).catch(() => []) : [];
               return healthResponse(env, featureHealth.length ? { ...details, features: featureHealth } : details);
+            }
+            if (url.pathname === "/api/tenant" && currentRequest.method === "GET") {
+              const context = await state.data.context();
+              if (!context.userId) return Response.json({ error: "Authentication is required." }, { status: 401 });
+              if (context.invalidTenant) return Response.json({ error: "The requested tenant is not available." }, { status: 400 });
+              return Response.json({ tenant: context.tenantId ? { id: context.tenantId, name: context.tenants?.find((tenant) => tenant.id === context.tenantId)?.name || null } : null, tenants: context.tenants || [] });
             }
             return fetch(currentRequest, env, ctx, state);
           }
@@ -43,7 +52,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         return security ? secureResponse(response) : response;
       } catch (error) {
         console.error("[worker] request failed", error);
-        if (error instanceof DataScopeError) return secureResponse(Response.json({ error: "Data access is not permitted." }, { status: 403, headers: { "Cache-Control": "no-store" } }));
+        if (error instanceof DataScopeError || error instanceof SubscriptionError) return secureResponse(Response.json({ error: error.message }, { status: 403, headers: { "Cache-Control": "no-store" } }));
         return secureResponse(Response.json({ error: "Internal server error" }, { status: 500, headers: { "Cache-Control": "no-store" } }));
       }
     },
@@ -108,10 +117,19 @@ function requiredScopeFor(pathname, routes) {
 
 async function authorizationApi(request, env, url, state, features = []) {
   const grantsMatch = url.pathname.match(/\/api\/admin\/users\/([^/]+)\/scopes$/);
-  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/features" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
+  const platformPath = url.pathname === "/api/admin/users" || url.pathname === "/api/admin/scopes" || url.pathname === "/api/admin/groups" || url.pathname.startsWith("/api/admin/users/") || url.pathname.startsWith("/api/admin/impersonate") || url.pathname === "/api/admin/status" || url.pathname === "/api/admin/features" || url.pathname === "/api/admin/healthchecks" || url.pathname === "/api/admin/circuit-breakers" || url.pathname.startsWith("/api/admin/healthchecks/") || url.pathname.startsWith("/api/admin/circuit-breakers/") || Boolean(grantsMatch);
   if (!platformPath) return null;
   if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  if (url.pathname === "/api/admin/impersonate/clear" && request.method === "POST") return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json; charset=utf-8", "Set-Cookie": "__Host-cfgenai_impersonation=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax" } });
   if (url.pathname === "/api/admin/users" && request.method === "GET") return Response.json({ users: await listAuthorizationUsers(env, { who: requestActor(state) }) });
+  const impersonateMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/impersonate$/);
+  if (impersonateMatch && request.method === "POST") {
+    const target = decodeURIComponent(impersonateMatch[1]);
+    const targetUser = await getAuthorizationUser(env, target, { who: requestActor(state) });
+    if (!targetUser) return Response.json({ error: "User not found." }, { status: 404 });
+    const token = await createImpersonationToken(env, state.authUser?.id || state.user?.sub || "admin", targetUser.id);
+    return new Response(JSON.stringify({ ok: true, user: { id: targetUser.id, email: targetUser.email, display_name: targetUser.display_name }, expires_in: 900 }), { headers: { "content-type": "application/json; charset=utf-8", "Set-Cookie": `__Host-cfgenai_impersonation=${token}; Max-Age=900; Path=/; Secure; HttpOnly; SameSite=Lax` } });
+  }
   if (url.pathname === "/api/admin/scopes" && request.method === "GET") return Response.json({ scopes: await listAuthorizationScopes(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/status" && request.method === "GET") return Response.json({ features: await listFeatureHealth(env, { who: requestActor(state) }) });
   if (url.pathname === "/api/admin/features" && request.method === "GET") return Response.json({ features: await listFeatureCatalog(env, features, { who: requestActor(state) }) });

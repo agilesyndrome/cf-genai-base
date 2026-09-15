@@ -78,12 +78,27 @@ Features may register D1 resources with `dataResources` and receive the
 scoped reader on the request state as `state.data`. Resources declare `user`,
 `tenant`, or `system` scope, their physical table, and an explicit column
 allowlist. Use `state.data.tenant`, `state.data.user`, or `state.data.system`;
-the reader applies ownership predicates, supports bounded cursor pagination via
-`.page()`, and never accepts raw SQL. Resources can explicitly restrict their
-operations to `read`, `create`, `update`, and `delete`.
+the reader applies ownership predicates, supports bounded native pagination via
+page with limit/offset, count, and safe bulk updateWhere/deleteWhere
+operations, and never accepts raw SQL. Resources can explicitly restrict
+their operations to read, create, update, and delete.
 
-Anonymous tenant reads require both `publicTenantId` on `createWorker` and
-`publicRead: true` on the resource; they never grant anonymous system access.
+Anonymous tenant reads require both publicTenantId on createWorker and a
+resource-level publicRead declaration. Use publicRead true only when the
+whole resource is public; for opt-in rows use a publicRead column/value
+declaration such as visibility=public. Anonymous reads never grant anonymous
+system access.
+
+Applications may pass subscriptionManifest to createWorker to register their
+own subscription IDs and entitlement values. Base exposes
+requireSubscription and requireEntitlement but does not know any
+product-specific subscription such as VIP. Authenticated users can inspect
+their validated active tenant at GET /api/tenant.
+
+Administrators can start a short-lived, HttpOnly impersonation session with
+POST /api/admin/users/:id/impersonate and clear it with
+POST /api/admin/impersonate/clear. Impersonation affects scoped data context
+only and does not grant the target user administrator permissions.
 
 For example, a tenant-owned resource registers its `tenant_id` column with
 base, while feature code calls `state.data.tenant.list("recipes")` without

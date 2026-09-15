@@ -7,7 +7,7 @@ function database() {
   return {
     calls,
     prepare(sql) {
-      const statement = { args: [], bind(...args) { this.args = args; return this; }, async all() { calls.push({ sql, args: this.args }); return { results: [{ id: "recipe-1", title: "Soup" }] }; }, async run() { calls.push({ sql, args: this.args }); return { success: true }; } };
+      const statement = { args: [], bind(...args) { this.args = args; return this; }, async all() { calls.push({ sql, args: this.args }); return { results: [{ id: "recipe-1", title: "Soup" }] }; }, async first() { calls.push({ sql, args: this.args }); return /COUNT/.test(sql) ? { count: 1 } : null; }, async run() { calls.push({ sql, args: this.args }); return { success: true }; } };
       return statement;
     },
   };
@@ -59,4 +59,13 @@ test("public tenant reads require an explicitly public resource and tenant", asy
   assert.equal((await reader.tenant.list("recipes"))[0].id, "recipe-1");
   const privateReader = createDataReader({ DB: db }, { resources: [recipes], context: { tenantId: "tenant-a", public: true, system: false } });
   assert.deepEqual(await privateReader.tenant.list("recipes"), []);
+});
+
+test("base enforces column capabilities even on tenant writes", async () => {
+  const db = database();
+  const resource = { ...recipes, columnScopes: { title: "recipe:publish-public" } };
+  const reader = createDataReader({ DB: db }, { resources: [resource], context: { userId: "user-1", tenantId: "tenant-a", scopes: [] } });
+  await assert.rejects(() => reader.tenant.update("recipes", "recipe-1", { title: "Nope" }), DataScopeError);
+  const scopedReader = createDataReader({ DB: db }, { resources: [resource], context: { userId: "user-1", tenantId: "tenant-a", scopes: ["recipe:publish-public"] } });
+  await scopedReader.tenant.update("recipes", "recipe-1", { title: "Allowed" });
 });

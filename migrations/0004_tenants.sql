@@ -35,11 +35,5 @@ CREATE INDEX IF NOT EXISTS auth_user_tenants_tenant_idx
 INSERT OR IGNORE INTO auth_tenants (id, name)
 VALUES ('easley-family', 'Easley Family');
 
-INSERT OR IGNORE INTO auth_subscriptions (id, name)
-VALUES ('vip', 'VIP');
-
-INSERT OR IGNORE INTO auth_tenant_subscriptions (tenant_id, subscription_id)
-VALUES ('easley-family', 'vip');
-
 INSERT OR IGNORE INTO auth_user_tenants (user_id, tenant_id)
 SELECT id, 'easley-family' FROM auth_users;

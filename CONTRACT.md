@@ -18,7 +18,7 @@ is optional and must use `ctx.waitUntil` for background work.
 - `scopes` registers an application scope manifest. `scopeRoutes` associates route prefixes or match functions with required scopes.
 - `adminPage` optionally renders the authorized platform admin browser pages so a site can keep the shared system menu and its own visual shell consistent.
 - `siteAdminPage` optionally renders site-owned pages below `/admin/site/*`, keeping them separate from the reserved platform page paths.
-- Base provides `/api/admin/users`, `/api/admin/scopes`, `/api/admin/groups`, `/api/admin/status`, `/api/admin/features`, `/api/admin/healthchecks`, `/api/admin/circuit-breakers`, and `/api/admin/users/:id/scopes|groups` for platform administrators when the authorization and core migrations are installed. `GET /api/admin/features` returns the installed runtime feature manifests, package names and versions, per-feature health rollups, healthchecks, and circuit breakers. The browser route `GET /admin/features` renders that catalog. Feature manifests may provide `name`, `displayName`, `packageName`, and `version`. The exported UI includes users, scopes, groups, healthchecks, and circuit-breaker catalogs.
+- Base provides `/api/admin/users`, `/api/admin/scopes`, `/api/admin/groups`, `/api/admin/status`, `/api/admin/features`, `/api/admin/healthchecks`, `/api/admin/circuit-breakers`, and `/api/admin/users/:id/scopes|groups` for platform administrators when the authorization and core migrations are installed. It also provides short-lived `/api/admin/users/:id/impersonate` and `/api/admin/impersonate/clear` controls. `GET /api/tenant` returns the authenticated active tenant and validated memberships; invalid `X-Tenant-ID` values return 400. `GET /api/admin/features` returns the installed runtime feature manifests, package names and versions, per-feature health rollups, healthchecks, and circuit breakers. The browser route `/admin/features` renders that catalog. Feature manifests may provide `name`, `displayName`, `packageName`, and `version`. The exported UI includes users, scopes, groups, healthchecks, and circuit-breaker catalogs.
 - Public APIs must be explicitly listed in provider-specific auth configuration.
 - Mutating `/api/*` requests require a same-origin `Origin` header.
 
@@ -61,9 +61,11 @@ must remain in the application router rather than in the shared auth package.
 manifest through `feature.dataResources`. Each resource must declare a safe
 name, table, explicit columns, and one scope: `user`, `tenant`, or `system`.
 Resources may also declare allowed operations (`read`, `create`, `update`, and
-`delete`); reads support bounded cursor pagination through `reader.page()`.
-Anonymous tenant reads require an explicit worker `publicTenantId` and a
-resource-level `publicRead: true` declaration.
+`delete`); reads support bounded native pagination through
+`reader.page({ limit, offset })` and `reader.count()`, plus safe filtered
+updates and deletes. Anonymous tenant reads require an explicit worker
+`publicTenantId` and a resource-level `publicRead` declaration; object form
+adds a row visibility predicate.
 Request handlers receive `state.data`, whose scope-specific readers apply the
 validated user or tenant predicate. Domain handlers must not use unrestricted
 `env.DB` for registered resources. Base cannot provide row-level security to

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorker } from "../src/index.js";
-import { DEFAULT_SUBSCRIPTION_ID, DEFAULT_TENANT_ID, ensureUser, normalizeScopes } from "../src/authorization.js";
+import { DEFAULT_TENANT_ID, createImpersonationToken, ensureUser, normalizeScopes, verifyImpersonationToken } from "../src/authorization.js";
+import { requestDataContext } from "../src/data.js";
 import fs from "node:fs/promises";
 
 const ctx = { waitUntil() {} };
@@ -13,11 +14,10 @@ test("tenant migration seeds the default tenant and migrates existing users", as
   assert.match(migration, /CREATE TABLE IF NOT EXISTS auth_tenant_subscriptions/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS auth_user_tenants/);
   assert.match(migration, /'easley-family', 'Easley Family'/);
-  assert.match(migration, /'vip', 'VIP'/);
   assert.match(migration, /SELECT id, 'easley-family' FROM auth_users/);
 });
 
-test("new authorization users are attached to the default tenant and subscription", async () => {
+test("new authorization users are attached to the default tenant", async () => {
   const statements = [];
   const user = { id: "user-1", provider: "oauth", subject: "subject-1", email: "person@example.test", display_name: "Person", is_admin: 0 };
   const db = {
@@ -40,7 +40,7 @@ test("new authorization users are attached to the default tenant and subscriptio
   db.prepare = (sql) => Object.assign(originalPrepare.call(db, sql), { sql });
   const result = await ensureUser({ DB: db }, { sub: "subject-1", email: user.email, name: user.display_name });
   assert.equal(result.id, user.id);
-  assert.deepEqual(statements.slice(1).map((item) => item.args), [[DEFAULT_TENANT_ID, "Easley Family"], [DEFAULT_SUBSCRIPTION_ID, "VIP"], [DEFAULT_TENANT_ID, DEFAULT_SUBSCRIPTION_ID], [statements[0].args[0], DEFAULT_TENANT_ID]]);
+  assert.deepEqual(statements.slice(1).map((item) => item.args), [[DEFAULT_TENANT_ID, "Easley Family"], [statements[0].args[0], DEFAULT_TENANT_ID]]);
 });
 
 test("base leaves public routes public and protects admin routes by default", async () => {
@@ -148,4 +148,19 @@ test("sites can reserve an explicit site admin namespace", async () => {
   const response = await worker.fetch(new Request("https://example.test/admin/site/settings", { headers: { Authorization: "Basic " + btoa("admin:secret") } }), { ADMIN_TOKEN: "secret" }, ctx);
   assert.equal(response.status, 200);
   assert.equal(await response.text(), "site page: /admin/site/settings");
+});
+
+test("active tenant rejects an invalid tenant id instead of falling back", async () => {
+  const db = { prepare(sql) { const statement = { bind() { return this; }, async all() { return { results: sql.includes("auth_tenants") ? [{ id: DEFAULT_TENANT_ID, name: "Easley Family" }] : [] }; } }; return statement; } };
+  const context = await requestDataContext({ DB: db }, { state: { authUser: { id: "user-1", is_admin: false } }, request: new Request("https://example.test/api/tenant", { headers: { "X-Tenant-ID": "not-a-tenant" } }) });
+  assert.equal(context.tenantId, null);
+  assert.equal(context.invalidTenant, true);
+});
+
+test("impersonation tokens require a secret and verify their target", async () => {
+  await assert.rejects(() => createImpersonationToken({}, "admin-1", "user-2"), /AUTH_SESSION_SECRET/);
+  const env = { AUTH_SESSION_SECRET: "a-secret-at-least-32-bytes-long-123" };
+  const token = await createImpersonationToken(env, "admin-1", "user-2");
+  assert.deepEqual((await verifyImpersonationToken(token, env)).targetUserId, "user-2");
+  assert.equal(await verifyImpersonationToken(`${token}tampered`, env), null);
 });

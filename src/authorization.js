@@ -5,8 +5,10 @@ export const AUTH_SCOPE_TABLE = "auth_scopes";
 export const AUTH_GRANT_TABLE = "auth_user_scopes";
 export const DEFAULT_TENANT_ID = "easley-family";
 export const DEFAULT_TENANT_NAME = "Easley Family";
-export const DEFAULT_SUBSCRIPTION_ID = "vip";
-export const DEFAULT_SUBSCRIPTION_NAME = "VIP";
+
+export class SubscriptionError extends Error {
+  constructor(message) { super(message); this.name = "SubscriptionError"; }
+}
 
 export function normalizeScopes(scopes = []) {
   return scopes.map((scope) => typeof scope === "string" ? { name: scope, label: scope, description: "", system: false } : scope)
@@ -44,8 +46,6 @@ export async function ensureUser(env, user, { who = "system:read" } = {}) {
 async function ensureDefaultTenantMembership(db, userId) {
   await db.batch([
     db.prepare("INSERT OR IGNORE INTO auth_tenants (id,name) VALUES (?,?)").bind(DEFAULT_TENANT_ID, DEFAULT_TENANT_NAME),
-    db.prepare("INSERT OR IGNORE INTO auth_subscriptions (id,name) VALUES (?,?)").bind(DEFAULT_SUBSCRIPTION_ID, DEFAULT_SUBSCRIPTION_NAME),
-    db.prepare("INSERT OR IGNORE INTO auth_tenant_subscriptions (tenant_id,subscription_id) VALUES (?,?)").bind(DEFAULT_TENANT_ID, DEFAULT_SUBSCRIPTION_ID),
     db.prepare("INSERT OR IGNORE INTO auth_user_tenants (user_id,tenant_id) VALUES (?,?)").bind(userId, DEFAULT_TENANT_ID)
   ]);
 }
@@ -59,7 +59,70 @@ export async function listUserTenants(env, userId, { who = "system:read" } = {})
 export async function listTenantSubscriptions(env, tenantId, { who = "system:read" } = {}) {
   const db = createD1(env, { who });
   const { results } = await db.prepare(`SELECT s.id,s.name,s.created_at,s.updated_at FROM auth_subscriptions s JOIN auth_tenant_subscriptions ts ON ts.subscription_id=s.id WHERE ts.tenant_id=? ORDER BY s.name COLLATE NOCASE`).bind(tenantId).all();
-  return results || [];
+  return Promise.all((results || []).map(async (subscription) => ({ ...subscription, entitlements: await listSubscriptionEntitlements(env, subscription.id, { who }) })));
+}
+
+export async function listSubscriptionEntitlements(env, subscriptionId, { who = "system:read" } = {}) {
+  const db = createD1(env, { who });
+  const { results } = await db.prepare("SELECT entitlement,value_json FROM auth_subscription_entitlements WHERE subscription_id=? ORDER BY entitlement").bind(subscriptionId).all();
+  return (results || []).map((row) => ({ entitlement: row.entitlement, value: parseJsonValue(row.value_json) }));
+}
+
+export function normalizeSubscriptionManifest(manifest = []) {
+  return manifest.map((subscription) => ({
+    id: String(subscription?.id || "").trim(),
+    name: String(subscription?.name || subscription?.id || "").trim(),
+    entitlements: Object.fromEntries(Object.entries(subscription?.entitlements || {}).map(([key, value]) => [String(key), value])),
+  })).filter((subscription) => /^[a-z0-9][a-z0-9_-]*$/.test(subscription.id) && subscription.name);
+}
+
+export async function ensureSubscriptionManifest(env, manifest = [], { who = "system:update" } = {}) {
+  if (!env?.DB) return;
+  const db = createD1(env, { who });
+  for (const subscription of normalizeSubscriptionManifest(manifest)) {
+    await db.prepare("INSERT INTO auth_subscriptions (id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,updated_at=CURRENT_TIMESTAMP").bind(subscription.id, subscription.name).run();
+    for (const [entitlement, value] of Object.entries(subscription.entitlements)) {
+      await db.prepare("INSERT INTO auth_subscription_entitlements (subscription_id,entitlement,value_json) VALUES (?,?,?) ON CONFLICT(subscription_id,entitlement) DO UPDATE SET value_json=excluded.value_json,updated_at=CURRENT_TIMESTAMP").bind(subscription.id, entitlement, JSON.stringify(value)).run();
+    }
+  }
+}
+
+export async function hasSubscription(env, tenantId, subscriptionId, { who = "system:read" } = {}) {
+  const db = createD1(env, { who });
+  return Boolean(await db.prepare("SELECT 1 FROM auth_tenant_subscriptions WHERE tenant_id=? AND subscription_id=?").bind(tenantId, subscriptionId).first());
+}
+
+export async function requireSubscription(env, tenantId, subscriptionId, { who = "system:read" } = {}) {
+  if (!await hasSubscription(env, tenantId, subscriptionId, { who })) throw new SubscriptionError("Required subscription is not active for this tenant.");
+  return true;
+}
+
+export async function hasEntitlement(env, tenantId, entitlement, expectedValue, { who = "system:read" } = {}) {
+  const db = createD1(env, { who });
+  const rows = await db.prepare("SELECT e.value_json FROM auth_subscription_entitlements e JOIN auth_tenant_subscriptions ts ON ts.subscription_id=e.subscription_id WHERE ts.tenant_id=? AND e.entitlement=?").bind(tenantId, entitlement).all();
+  return (rows.results || []).some((row) => expectedValue === undefined || deepEqual(parseJsonValue(row.value_json), expectedValue));
+}
+
+export async function requireEntitlement(env, tenantId, entitlement, expectedValue, { who = "system:read" } = {}) {
+  if (!await hasEntitlement(env, tenantId, entitlement, expectedValue, { who })) throw new SubscriptionError(`Required entitlement is not active: ${entitlement}.`);
+  return true;
+}
+
+export async function createImpersonationToken(env, adminUserId, targetUserId, { ttlSeconds = 900 } = {}) {
+  if (!env?.AUTH_SESSION_SECRET) throw new Error("AUTH_SESSION_SECRET is required for impersonation.");
+  const payload = { adminUserId: String(adminUserId || "admin"), targetUserId: String(targetUserId), exp: Math.floor(Date.now() / 1000) + Math.min(Math.max(Number(ttlSeconds) || 900, 60), 3600) };
+  const encoded = base64url(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${encoded}.${await signValue(encoded, env?.AUTH_SESSION_SECRET || "")}`;
+}
+
+export async function verifyImpersonationToken(token, env) {
+  if (!env?.AUTH_SESSION_SECRET) return null;
+  const [encoded, signature] = String(token || "").split(".");
+  if (!encoded || !signature || !constantTimeEqual(signature, await signValue(encoded, env?.AUTH_SESSION_SECRET || ""))) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(encoded)));
+    return payload.exp > Date.now() / 1000 && payload.targetUserId ? payload : null;
+  } catch { return null; }
 }
 
 export async function hasScope(env, user, scope, { who = "system:read" } = {}) {
@@ -75,6 +138,11 @@ export async function listAuthorizationUsers(env, { who = "system:read" } = {}) 
   const db = createD1(env, { who });
   const { results } = await db.prepare(`SELECT id,email,display_name,provider,subject,is_admin,created_at,updated_at FROM ${AUTH_USER_TABLE} ORDER BY email COLLATE NOCASE`).all();
   return Promise.all(results.map(async (user) => ({ ...user, scopes: (await listUserGrants(env, user.id, { who })).map((grant) => grant.scope_name) })));
+}
+
+export async function getAuthorizationUser(env, userId, { who = "system:read" } = {}) {
+  const db = createD1(env, { who });
+  return db.prepare(`SELECT id,email,display_name,provider,subject,is_admin,created_at,updated_at FROM ${AUTH_USER_TABLE} WHERE id=?`).bind(userId).first();
 }
 
 export async function listAuthorizationScopes(env, { who = "system:read" } = {}) {
@@ -110,3 +178,10 @@ async function stableId(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
+
+function parseJsonValue(value) { try { return JSON.parse(value); } catch { return value; } }
+function deepEqual(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+async function signValue(value, secret) { const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(secret)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)); return base64url(new Uint8Array(signature)); }
+function base64url(bytes) { return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
+function base64urlDecode(value) { const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4); return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0)); }
+function constantTimeEqual(left, right) { const a = new TextEncoder().encode(String(left)), b = new TextEncoder().encode(String(right)); let result = a.length ^ b.length; for (let index = 0; index < Math.max(a.length, b.length); index += 1) result |= (a[index] || 0) ^ (b[index] || 0); return result === 0; }
