@@ -36,7 +36,7 @@ export function normalizeDataResources(resources = []) {
     if (writableColumns.some((column) => !columns.includes(column))) throw new TypeError(`Data resource ${resource.name} references an unwritable column`);
     const operations = [...new Set((resource.operations || ["read", ...(writableColumns.length ? ["create", "update", "delete"] : [])]).map((operation) => String(operation).toLowerCase()))];
     if (!operations.length || operations.some((operation) => !DATA_OPERATIONS.includes(operation)) || !operations.includes("read")) throw new TypeError(`Data resource ${name} has invalid operations`);
-    return { ...resource, name, table: String(resource.table), scope, columns, idColumn, ownerColumn, tenantColumn, filterableColumns, orderableColumns, writableColumns, operations };
+    return { ...resource, name, table: String(resource.table), scope, columns, idColumn, ownerColumn, tenantColumn, filterableColumns, orderableColumns, writableColumns, operations, publicRead: Boolean(resource.publicRead) };
   });
 }
 
@@ -122,18 +122,18 @@ export function createDataReader(env, { resources = [], context } = {}) {
   return { user: scope("user"), tenant: scope("tenant"), system: scope("system"), resources: [...registry.values()] };
 }
 
-export async function requestDataContext(env, { state = {}, request } = {}) {
+export async function requestDataContext(env, { state = {}, request, publicTenantId = null } = {}) {
   const authUser = state.authUser || (state.user ? await ensureUser(env, state.user, { who: `user:${state.user.sub || "unknown"}` }) : null);
   const system = Boolean(state.user?.auth_strategy === "http_basic" || (authUser && authUser.is_admin));
-  if (!authUser) return { userId: null, tenantId: null, system: false };
+  if (!authUser) return { userId: null, tenantId: publicTenantId, public: Boolean(publicTenantId), system: false };
   const tenants = await listUserTenants(env, authUser.id, { who: `user:${authUser.id}` });
   const requestedTenant = state.tenantId || request?.headers?.get("X-Tenant-ID") || null;
   const tenant = requestedTenant ? tenants.find((item) => item.id === requestedTenant) : tenants.length === 1 ? tenants[0] : null;
-  return { userId: authUser.id, tenantId: tenant?.id || null, system, tenants };
+  return { userId: authUser.id, tenantId: tenant?.id || null, public: false, system, tenants };
 }
 
 function isAllowed(resource, requestedScope, actor, operation) {
-  const allowed = requestedScope === "system" ? Boolean(actor.system) : requestedScope === resource.scope && (requestedScope === "user" ? Boolean(actor.userId) : Boolean(actor.userId && actor.tenantId));
+  const allowed = requestedScope === "system" ? Boolean(actor.system) : requestedScope === resource.scope && (requestedScope === "user" ? Boolean(actor.userId) : Boolean(actor.tenantId && (actor.userId || (actor.public && resource.publicRead))));
   if (!allowed || !resource.operations.includes(operation)) {
     auditLog({ who: actorLabel(actor), operation: "deny", resource: `data:${resource.name}:${requestedScope}:${operation}` });
     return false;

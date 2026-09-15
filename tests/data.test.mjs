@@ -52,3 +52,11 @@ test("system reader is the only reader allowed to access system resources", asyn
   assert.match(db.calls[0].sql, /FROM "settings" LIMIT/);
   assert.deepEqual(await reader.tenant.list("settings"), []);
 });
+
+test("public tenant reads require an explicitly public resource and tenant", async () => {
+  const db = database();
+  const reader = createDataReader({ DB: db }, { resources: [{ ...recipes, publicRead: true }], context: { tenantId: "tenant-a", public: true, system: false } });
+  assert.equal((await reader.tenant.list("recipes"))[0].id, "recipe-1");
+  const privateReader = createDataReader({ DB: db }, { resources: [recipes], context: { tenantId: "tenant-a", public: true, system: false } });
+  assert.deepEqual(await privateReader.tenant.list("recipes"), []);
+});

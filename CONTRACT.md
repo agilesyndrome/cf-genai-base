@@ -62,6 +62,8 @@ manifest through `feature.dataResources`. Each resource must declare a safe
 name, table, explicit columns, and one scope: `user`, `tenant`, or `system`.
 Resources may also declare allowed operations (`read`, `create`, `update`, and
 `delete`); reads support bounded cursor pagination through `reader.page()`.
+Anonymous tenant reads require an explicit worker `publicTenantId` and a
+resource-level `publicRead: true` declaration.
 Request handlers receive `state.data`, whose scope-specific readers apply the
 validated user or tenant predicate. Domain handlers must not use unrestricted
 `env.DB` for registered resources. Base cannot provide row-level security to

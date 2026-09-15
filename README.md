@@ -82,6 +82,9 @@ the reader applies ownership predicates, supports bounded cursor pagination via
 `.page()`, and never accepts raw SQL. Resources can explicitly restrict their
 operations to `read`, `create`, `update`, and `delete`.
 
+Anonymous tenant reads require both `publicTenantId` on `createWorker` and
+`publicRead: true` on the resource; they never grant anonymous system access.
+
 For example, a tenant-owned resource registers its `tenant_id` column with
 base, while feature code calls `state.data.tenant.list("recipes")` without
 passing a tenant ID. The active tenant must be a validated membership. A
