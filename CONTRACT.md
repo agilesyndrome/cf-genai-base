@@ -4,7 +4,7 @@ Every site built from this foundation follows the same edge contract.
 
 ## Worker entrypoint
 
-`createWorker({ fetch, features?, middleware?, auth?, authorize?, scheduled?, security? })` owns the Worker lifecycle and reserved admin boundary. Features run in declaration order and may call `next()` or return a response. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
+`createWorker({ fetch, features?, middleware?, auth?, authorize?, scheduled?, security? })` owns the Worker lifecycle and reserved admin boundary. Features run in declaration order and may call `next()` or return a response. A feature may also declare `{ routes: [{ match, handle }] }`; matching handlers receive `{ request, env, ctx, state, next }` and run before the site handler. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
 is optional and must use `ctx.waitUntil` for background work.
 
 ## Routes
@@ -68,7 +68,8 @@ updates and deletes. Anonymous tenant reads require an explicit worker
 adds a row visibility predicate.
 Request handlers receive `state.data`, whose scope-specific readers apply the
 validated user or tenant predicate. Domain handlers must not use unrestricted
-`env.DB` for registered resources. Base cannot provide row-level security to
+`readableColumns` list the only columns returned by reads; callers must declare
+them explicitly. Base cannot provide row-level security to
 direct D1 calls, so applications must keep raw database access out of domain
 features. The cookbook migration must add and backfill `tenant_id` on recipe
 tables, register recipes as tenant-scoped, replace direct D1 reads/writes with

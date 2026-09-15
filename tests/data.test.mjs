@@ -18,6 +18,7 @@ const recipes = {
   table: "recipes",
   scope: "tenant",
   columns: ["id", "tenant_id", "title"],
+  readableColumns: ["id", "title"],
   writableColumns: ["id", "title"],
 };
 
@@ -42,12 +43,12 @@ test("tenant writes bind ownership and cannot be replaced by caller data", async
 
 test("resource registration requires ownership columns", () => {
   assert.throws(() => normalizeDataResources([{ name: "recipes", table: "recipes", scope: "tenant", columns: ["id", "title"] }]), /tenant_id/);
-  assert.throws(() => normalizeDataResources([{ name: "settings", table: "settings", scope: "system", columns: ["id"], operations: ["update"] }]), /invalid operations/);
+  assert.throws(() => normalizeDataResources([{ name: "settings", table: "settings", scope: "system", columns: ["id"], readableColumns: ["id"], operations: ["update"] }]), /invalid operations/);
 });
 
 test("system reader is the only reader allowed to access system resources", async () => {
   const db = database();
-  const reader = createDataReader({ DB: db }, { resources: [{ name: "settings", table: "settings", scope: "system", columns: ["id", "value"], writableColumns: ["id", "value"] }], context: { userId: "user-1", tenantId: "tenant-a", system: true } });
+  const reader = createDataReader({ DB: db }, { resources: [{ name: "settings", table: "settings", scope: "system", columns: ["id", "value"], readableColumns: ["id"], writableColumns: ["id", "value"] }], context: { userId: "user-1", tenantId: "tenant-a", system: true } });
   assert.equal((await reader.system.list("settings"))[0].id, "recipe-1");
   assert.match(db.calls[0].sql, /FROM "settings" LIMIT/);
   assert.deepEqual(await reader.tenant.list("settings"), []);

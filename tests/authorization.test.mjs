@@ -51,6 +51,24 @@ test("base leaves public routes public and protects admin routes by default", as
   assert.match(response.headers.get("WWW-Authenticate"), /Basic/);
 });
 
+test("admin mutations require a same-origin Origin header", async () => {
+  const worker = createWorker({ fetch: async () => new Response("ok") });
+  const env = { ADMIN_TOKEN: "secret" };
+  const auth = { Authorization: "Basic " + btoa("admin:secret") };
+  assert.equal((await worker.fetch(new Request("https://example.test/api/admin/delete", { method: "POST", headers: auth }), env, ctx)).status, 403);
+  assert.equal((await worker.fetch(new Request("https://example.test/api/admin/delete", { method: "POST", headers: { ...auth, Origin: "https://evil.test" } }), env, ctx)).status, 403);
+  assert.equal((await worker.fetch(new Request("https://example.test/api/admin/delete", { method: "POST", headers: { ...auth, Origin: "https://example.test" } }), env, ctx)).status, 200);
+});
+
+test("feature routes are composed before the site handler", async () => {
+  const worker = createWorker({
+    features: [{ name: "example", routes: [{ path: "/plugin", handle: () => new Response("feature") }] }],
+    fetch: async () => new Response("site"),
+  });
+  assert.equal(await (await worker.fetch(new Request("https://example.test/plugin"), {}, ctx)).text(), "feature");
+  assert.equal(await (await worker.fetch(new Request("https://example.test/other"), {}, ctx)).text(), "site");
+});
+
 test("valid Basic credentials produce the platform admin principal", async () => {
   const worker = createWorker({ fetch: async (_request, _env, _ctx, _state) => Response.json({ ok: true }) });
   const request = new Request("https://example.test/api/admin/anything", { headers: { Authorization: `Basic ${btoa("admin:secret")}` } });

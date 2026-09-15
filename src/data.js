@@ -36,11 +36,14 @@ export function normalizeDataResources(resources = []) {
     if (writableColumns.some((column) => !columns.includes(column))) throw new TypeError(`Data resource ${resource.name} references an unwritable column`);
     const columnScopes = Object.fromEntries(Object.entries(resource.columnScopes || {}).map(([column, scopes]) => [String(column), Array.isArray(scopes) ? scopes.map(String) : [String(scopes)]]));
     if (Object.keys(columnScopes).some((column) => !columns.includes(column) || columnScopes[column].some((scope) => !/^[a-z0-9]+(?::[a-z0-9-]+)+$/.test(scope)))) throw new TypeError(`Data resource ${resource.name} has invalid column scopes`);
+    if (!Array.isArray(resource.readableColumns) || !resource.readableColumns.length) throw new TypeError(`Data resource ${resource.name} requires explicit readableColumns`);
+    const readableColumns = [...new Set(resource.readableColumns.map(String))];
+    if (readableColumns.some((column) => !columns.includes(column))) throw new TypeError(`Data resource ${resource.name} references an unreadable column`);
     const operations = [...new Set((resource.operations || ["read", ...(writableColumns.length ? ["create", "update", "delete"] : [])]).map((operation) => String(operation).toLowerCase()))];
     if (!operations.length || operations.some((operation) => !DATA_OPERATIONS.includes(operation)) || !operations.includes("read")) throw new TypeError(`Data resource ${name} has invalid operations`);
     const publicRead = resource.publicRead && typeof resource.publicRead === "object" ? { column: String(resource.publicRead.column || ""), value: resource.publicRead.value } : Boolean(resource.publicRead);
     if (publicRead && typeof publicRead === "object" && (!/^[a-z][a-z0-9_]*$/.test(publicRead.column) || !columns.includes(publicRead.column))) throw new TypeError(`Public resource ${resource.name} requires a selected visibility column`);
-    return { ...resource, name, table: String(resource.table), scope, columns, idColumn, ownerColumn, tenantColumn, filterableColumns, orderableColumns, writableColumns, columnScopes, operations, publicRead };
+    return { ...resource, name, table: String(resource.table), scope, columns, readableColumns, idColumn, ownerColumn, tenantColumn, filterableColumns, orderableColumns, writableColumns, columnScopes, operations, publicRead };
   });
 }
 
@@ -74,7 +77,7 @@ export function createDataReader(env, { resources = [], context } = {}) {
     if (cursor !== undefined && cursor !== null) { predicates.push(`${quote(resource.idColumn)}>?`); bindings.push(cursor); }
     const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
     const safeOffset = Math.max(Number(offset) || 0, 0);
-    let sql = `SELECT ${resource.columns.map(quote).join(",")} FROM ${quote(resource.table)}${predicates.length ? ` WHERE ${predicates.join(" AND ")}` : ""} LIMIT ${safeLimit} OFFSET ${safeOffset}`;
+    let sql = `SELECT ${resource.readableColumns.map(quote).join(",")} FROM ${quote(resource.table)}${predicates.length ? ` WHERE ${predicates.join(" AND ")}` : ""} LIMIT ${safeLimit} OFFSET ${safeOffset}`;
     if (orderBy) {
       const [column, direction = "ASC"] = String(orderBy).split(/\s+/, 2);
       if (!resource.orderableColumns.includes(column)) throw new TypeError(`Column ${column} cannot order ${resource.name}`);

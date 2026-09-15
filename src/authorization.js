@@ -32,13 +32,14 @@ export async function ensureUser(env, user, { who = "system:read" } = {}) {
   const email = String(user.email || "").trim().toLowerCase();
   const existing = await db.prepare(`SELECT * FROM ${AUTH_USER_TABLE} WHERE provider=? AND subject=?`).bind(provider, subject).first();
   const bootstrap = new Set(String(env.AUTH_ADMIN_EMAILS || env.ADMIN_EMAILS || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const bootstrapAdmin = user.email_verified === true && bootstrap.has(email);
   if (existing) {
-    await db.prepare(`UPDATE ${AUTH_USER_TABLE} SET email=?,display_name=?,is_admin=CASE WHEN is_admin=1 OR ? THEN 1 ELSE 0 END,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(email, String(user.name || email || subject), bootstrap.has(email) ? 1 : 0, existing.id).run();
+    await db.prepare(`UPDATE ${AUTH_USER_TABLE} SET email=?,display_name=?,is_admin=CASE WHEN is_admin=1 OR ? THEN 1 ELSE 0 END,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(email, String(user.name || email || subject), bootstrapAdmin ? 1 : 0, existing.id).run();
     await ensureDefaultTenantMembership(db, existing.id);
-    return { ...existing, email, display_name: String(user.name || email || subject), is_admin: Boolean(existing.is_admin || bootstrap.has(email)) };
+    return { ...existing, email, display_name: String(user.name || email || subject), is_admin: Boolean(existing.is_admin || bootstrapAdmin) };
   }
   const id = await stableId(`${provider}:${subject}`);
-  await db.prepare(`INSERT INTO ${AUTH_USER_TABLE} (id,provider,subject,email,display_name,is_admin) VALUES (?,?,?,?,?,?) ON CONFLICT(provider,subject) DO NOTHING`).bind(id, provider, subject, email, String(user.name || email || subject), bootstrap.has(email) ? 1 : 0).run();
+  await db.prepare(`INSERT INTO ${AUTH_USER_TABLE} (id,provider,subject,email,display_name,is_admin) VALUES (?,?,?,?,?,?) ON CONFLICT(provider,subject) DO NOTHING`).bind(id, provider, subject, email, String(user.name || email || subject), bootstrapAdmin ? 1 : 0).run();
   await ensureDefaultTenantMembership(db, id);
   return await db.prepare(`SELECT * FROM ${AUTH_USER_TABLE} WHERE id=?`).bind(id).first();
 }

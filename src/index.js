@@ -8,13 +8,44 @@ import { createDataReader, DataScopeError, normalizeDataResources, requestDataCo
 export * from "./core.js";
 export * from "./data.js";
 export * from "./authorization.js";
+const featureRegistrationPromises = new WeakMap();
+
+export function ensureFeatureManifests(env, features = [], { who = "system:update" } = {}) {
+  if (!env || typeof env !== "object" || !env.DB) return Promise.resolve();
+  const key = features.map((feature) => String(feature?.name || feature?.id || "feature")).join("|");
+  let registrations = featureRegistrationPromises.get(env.DB);
+  if (!registrations) {
+    registrations = new Map();
+    featureRegistrationPromises.set(env.DB, registrations);
+  }
+  let promise = registrations.get(key);
+  if (!promise) {
+    promise = (async () => {
+      await registerFeatureManifests(env, features, { who });
+      const breakers = await listCircuitBreakers(env, { who });
+      await Promise.all(breakers.filter(Boolean).map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who })));
+    })();
+    registrations.set(key, promise);
+    promise.catch(() => registrations.delete(key));
+  }
+  return promise;
+}
+
 export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], middleware = [], features = [], dataResources = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
   const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : [])]);
+  const featureRoutes = features.flatMap((feature) => Array.isArray(feature?.routes) ? [async (request, env, ctx, next, state) => {
+    for (const route of feature.routes) {
+      const matches = typeof route?.match === "function" ? await route.match(request, env, state) : route?.path === new URL(request.url).pathname;
+      if (matches && typeof route.handle === "function") return route.handle({ request, env, ctx, state, next });
+    }
+    return next();
+  }] : []);
   const chain = [
             (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features, adminPage, siteAdminPage }),
     ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
+    ...featureRoutes,
     ...middleware,
     ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : []),
   ].filter(Boolean);
@@ -27,7 +58,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         const state = Object.create(null);
         if (provider?.getUser) state.user = await provider.getUser(request, env).catch(() => null);
         state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request, publicTenantId }) });
-        if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(registerFeatureManifests(env, features, { who: "system:update" }).then(() => listCircuitBreakers(env, { who: "system:update" }).then((breakers) => Promise.all(breakers.filter(Boolean).map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who: "system:update" }))))).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
+        if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(ensureFeatureManifests(env, features).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
           const layer = chain[index];
           if (!layer) {
@@ -75,6 +106,10 @@ async function adminBoundary(request, env, ctx, next, state, { provider, authori
     state.user = user;
   } else {
     return new Response("Unsupported AUTH_STRATEGY", { status: 500, headers: { "Cache-Control": "no-store" } });
+  }
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && url.pathname.startsWith("/api/")) {
+    const origin = request.headers.get("Origin");
+    if (!origin || (() => { try { return new URL(origin).origin !== url.origin; } catch { return true; } })()) return Response.json({ error: "A same-origin request is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   }
   await ensureScopes(env, scopes, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
   state.authUser = await ensureUser(env, state.user, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
