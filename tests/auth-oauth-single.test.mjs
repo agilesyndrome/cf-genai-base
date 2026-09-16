@@ -84,6 +84,19 @@ test("login uses provider discovery and PKCE", async () => {
   }
 });
 
+test("discovery rejects issuer substitution and insecure provider endpoints", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({ issuer: "https://evil.example/", authorization_endpoint: "https://issuer.example/authorize", token_endpoint: "https://issuer.example/token", jwks_uri: "https://issuer.example/keys" });
+    await assert.rejects(() => createAuth().handle(request("/auth/login"), { ...env, OIDC_ISSUER: "https://issuer.example", OIDC_DISCOVERY_URL: "https://discovery-proxy.example/.well-known/openid-configuration" }), /unexpected issuer/);
+
+    globalThis.fetch = async () => Response.json({ issuer: "https://second-issuer.example/", authorization_endpoint: "https://second-issuer.example/authorize", token_endpoint: "http://second-issuer.example/token", jwks_uri: "https://second-issuer.example/keys" });
+    await assert.rejects(() => createAuth().handle(request("/auth/login"), { ...env, OIDC_DISCOVERY_URL: "https://second-issuer.example/.well-known/openid-configuration" }), /invalid token endpoint/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("rejects unsafe cookie prefixes", () => {
   assert.throws(() => createAuth({ cookiePrefix: "bad; Domain=evil.example" }), /cookiePrefix/);
 });
@@ -129,7 +142,7 @@ test("authenticated sessions hydrate the canonical base auth user", async () => 
   const user = await auth.getUser(request("/api/me", { headers: { Cookie: `__Host-cfgenai_session=${payload}.${signature}` } }), envWithDb);
   assert.equal(user.authUser.id, "auth-1");
   assert.equal(user.authUser.is_admin, true);
-  assert.ok(statements.length >= 2);
+  assert.equal(statements.length, 0);
 });
 
 test("auth registers canonical repositories and exposes a minimal public identity", async () => {

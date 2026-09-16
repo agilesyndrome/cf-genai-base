@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorker } from "../src/index.js";
-import { DEFAULT_TENANT_ID, createImpersonationToken, ensureUser, normalizeScopes, verifyImpersonationToken } from "../src/auth/index.js";
+import { DEFAULT_TENANT_ID, createImpersonationToken, ensureSubscriptionManifest, ensureUser, listAuthorizationUsers, normalizeScopes, verifyImpersonationToken } from "../src/auth/index.js";
 import { requestDataContext } from "../src/data/index.js";
 import fs from "node:fs/promises";
 
@@ -41,6 +41,33 @@ test("new authorization users are attached to the default tenant", async () => {
   const result = await ensureUser({ DB: db }, { sub: "subject-1", email: user.email, name: user.display_name });
   assert.equal(result.id, user.id);
   assert.deepEqual(statements.slice(1).map((item) => item.args), [[DEFAULT_TENANT_ID, "Easley Family"], [statements[0].args[0], DEFAULT_TENANT_ID]]);
+});
+
+test("existing authorization users are not rewritten when identity fields are unchanged", async () => {
+  let writes = 0;
+  const existing = { id: "user-1", provider: "oauth", subject: "subject-1", email: "person@example.test", display_name: "Person", is_admin: 0 };
+  const db = { prepare() { return { bind() { return this; }, async first() { return existing; }, async run() { writes += 1; } }; }, async batch() { writes += 1; } };
+  await ensureUser({ DB: db }, { sub: "subject-1", email: existing.email, name: existing.display_name });
+  assert.equal(writes, 0);
+});
+
+test("authorization user listing loads related data with a fixed query count", async () => {
+  const calls = [];
+  const db = { prepare(sql) { return { async all() { calls.push(sql); if (sql.includes("FROM auth_users")) return { results: [{ id: "user-1", email: "one@example.test" }, { id: "user-2", email: "two@example.test" }] }; if (sql.includes("auth_user_scopes")) return { results: [{ user_id: "user-1", scope_name: "items:read" }] }; return { results: [{ user_id: "user-1", id: "tenant-1", name: "One" }] }; } }; } };
+  const users = await listAuthorizationUsers({ DB: db });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(users[0].scopes, ["items:read"]);
+  assert.deepEqual(users[0].tenants, [{ id: "tenant-1", name: "One" }]);
+  assert.deepEqual(users[1].scopes, []);
+});
+
+test("subscription manifests are written once per binding and manifest", async () => {
+  let writes = 0;
+  const db = { prepare() { return { bind() { return this; }, async run() { writes += 1; } }; } };
+  const manifest = [{ id: "pro", name: "Pro", entitlements: { "jobs:run": true } }];
+  await ensureSubscriptionManifest({ DB: db }, manifest);
+  await ensureSubscriptionManifest({ DB: db }, manifest);
+  assert.equal(writes, 2);
 });
 
 test("base leaves public routes public and protects admin routes by default", async () => {

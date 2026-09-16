@@ -13,11 +13,11 @@ export async function readJsonClone(request, maxBytes = 64 * 1024) {
   const declared = Number(request.headers.get("Content-Length"));
   if (Number.isFinite(declared) && declared > maxBytes) return { error: secureJson({ error: "Request body is too large" }, 413) };
   try {
-    const value = await request.clone().json();
+    const value = await readBoundedJson(request, maxBytes);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Object required");
-    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maxBytes) return { error: secureJson({ error: "Request body is too large" }, 413) };
     return { value };
-  } catch {
+  } catch (error) {
+    if (error?.status === 413) return { error: secureJson({ error: "Request body is too large" }, 413) };
     return { error: secureJson({ error: "Invalid JSON object request" }, 400) };
   }
 }
@@ -28,14 +28,31 @@ export async function readJson(request, maxBytes = 64 * 1024) {
   if (Number.isFinite(declared) && declared > maxBytes) throw Object.assign(new Error("Request body is too large"), { status: 413 });
   if (!request.body) throw Object.assign(new Error("Request body required"), { status: 400 });
   try {
-    const value = await request.clone().json();
+    const value = await readBoundedJson(request, maxBytes);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Object required");
-    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maxBytes) throw Object.assign(new Error("Request body is too large"), { status: 413 });
     return value;
   } catch (error) {
     if (error?.status) throw error;
     throw Object.assign(new Error("Invalid JSON object request"), { status: 400 });
   }
+}
+
+async function readBoundedJson(request, maxBytes) {
+  const reader = request.clone().body?.getReader();
+  if (!reader) throw new Error("Request body required");
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) { void reader.cancel(); throw Object.assign(new Error("Request body is too large"), { status: 413 }); }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+  return JSON.parse(new TextDecoder().decode(body));
 }
 
 export function secureJson(payload, status = 200, headers = {}) {

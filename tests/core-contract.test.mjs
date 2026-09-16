@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Event, createEventHandler, requestContext, requestIdentity, sameOrigin } from "../src/core/index.js";
+import { Event, createEventHandler, readJson, requestContext, requestIdentity, sameOrigin } from "../src/core/index.js";
 
 test("Event and request context use the canonical identity contract", async () => {
   const received = [];
@@ -20,4 +20,11 @@ test("same-origin and event contracts reject cross-site mutations", () => {
   const event = Event("user:u-1", "test", "unit", "2026-09-16T00:00:00.000Z");
   assert.equal(event.when, "2026-09-16T00:00:00.000Z");
   assert.equal(event.details.value, undefined);
+});
+
+test("JSON body limits are enforced while streaming without Content-Length", async () => {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({ start(controller) { controller.enqueue(encoder.encode('{"value":"')); controller.enqueue(encoder.encode("x".repeat(128))); controller.enqueue(encoder.encode('"}')); controller.close(); } });
+  const request = new Request("https://example.test/api", { method: "POST", headers: { "Content-Type": "application/json" }, body, duplex: "half" });
+  await assert.rejects(() => readJson(request, 64), (error) => error.status === 413);
 });

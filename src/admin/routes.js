@@ -6,7 +6,7 @@ export async function adminBoundary(request, env, ctx, next, state, { provider, 
   if (!isAdminPath(url.pathname)) return next(request);
   const strategy = String(env?.AUTH_STRATEGY || "http_basic").trim().toLowerCase();
   if (strategy === "http_basic") { const user = basicUser(request, env); if (!user) return adminUnauthorized(request); state.user = user; }
-  else if (strategy === "oauth") { const user = provider?.getUser ? await provider.getUser(request, env) : null; if (!user) return oauthUnauthorized(request, url); state.user = user; }
+  else if (strategy === "oauth") { const user = Object.hasOwn(state, "user") ? state.user : provider?.getUser ? await provider.getUser(request, env) : null; if (!user) return oauthUnauthorized(request, url); state.user = user; }
   else return new Response("Unsupported AUTH_STRATEGY", { status: 500, headers: { "Cache-Control": "no-store" } });
   if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && url.pathname.startsWith("/api/")) { const origin = request.headers.get("Origin"); if (!origin || (() => { try { return new URL(origin).origin !== url.origin; } catch { return true; } })()) return Response.json({ error: "A same-origin request is required." }, { status: 403, headers: { "Cache-Control": "no-store" } }); }
   const who = state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}`;

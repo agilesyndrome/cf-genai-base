@@ -1,4 +1,4 @@
-import { ensureSubscriptionManifest, SubscriptionError } from "../auth/index.js";
+import { ensureScopes, ensureSubscriptionManifest, SubscriptionError } from "../auth/index.js";
 import { auditedD1, createEventHandler, listFeatureHealth, requestActor, requestContext, secureResponse } from "../core/index.js";
 import { jobResponse, liveEventsResponse } from "../api/jobs.js";
 import { createRepositories } from "../repository.js";
@@ -11,21 +11,25 @@ import { adminBoundary } from "../admin/routes.js";
 import { ensureFeatureManifests } from "./features.js";
 import { healthResponse } from "./health.js";
 
+const scopeManifestPromises = new WeakMap();
+
 export function createWorker({ fetch, scheduled, app = { name: "worker" }, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], apiRoutes = [], middleware = [], features = [], dataResources = [], repositories = [], publicTenantId = null, health, boot, security = true, eventHubBinding = "EVENT_HUB" }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const application = defineApp(app); const provider = auth || features.find((feature) => typeof feature?.getUser === "function"); const eventHandler = createEventHandler(features, { eventHubBinding });
   const repositoryDefinitions = [...repositories, ...features.flatMap((feature) => Array.isArray(feature?.repositories) ? feature.repositories : [])];
   const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : []), ...repositoryDefinitions.filter((definition) => definition.resourceDefinition).map((definition) => definition.resourceDefinition)]);
   const featureRoutes = features.flatMap((feature) => Array.isArray(feature?.routes) ? [async (request, env, ctx, next, state) => { for (const route of feature.routes) { const matches = typeof route?.match === "function" ? await route.match(request, env, state) : route?.path === new URL(request.url).pathname; if (matches && typeof route.handle === "function") return route.handle({ request, env, ctx, state, next }); } return next(); }] : []);
-  const chain = [(request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features }), ...(apiRoutes.length ? [(request, env, ctx, next, state) => dispatchRoutes(request, env, ctx, state, apiRoutes).then((response) => response || next(request))] : []), ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []), ...featureRoutes, ...middleware, ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : [])].filter(Boolean);
+  const chain = [(request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes: [], scopeRoutes, features }), ...(apiRoutes.length ? [(request, env, ctx, next, state) => dispatchRoutes(request, env, ctx, state, apiRoutes).then((response) => response || next(request))] : []), ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []), ...featureRoutes, ...middleware, ...(auth ? [(request, env, ctx, next) => auth(request, env, ctx, next)] : [])].filter(Boolean);
   return {
     async fetch(request, env, ctx) {
       try {
         if (boot) await boot(env, { request, ctx });
         if (subscriptionManifest.length) await ensureSubscriptionManifest(env, subscriptionManifest, { who: "system:update" });
         const url = new URL(request.url); const state = Object.create(null); state.requestId = crypto.randomUUID();
+        if (env?.DB && scopes.length && isAdminPath(url.pathname)) await ensureScopeManifest(env, scopes);
         if (provider?.getUser) state.user = await provider.getUser(request, env).catch(() => null); if (state.user?.authUser) state.authUser = state.user.authUser;
-        state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request, publicTenantId }) });
+        let dataContext;
+        state.data = createDataReader(env, { resources: registeredDataResources, context: () => dataContext ||= requestDataContext(env, { state, request, publicTenantId }) });
         const requestEnv = Object.create(env || null);
         Object.assign(requestEnv, { app: application, DB: env?.DB ? auditedD1(env.DB, requestActor(state)) : env?.DB, data: state.data, repositories: createRepositories(requestEnv, repositoryDefinitions), user: state.user || null, authUser: state.authUser || null, userId: state.authUser?.id || null, eventHandler: (event, eventEnv, eventCtx) => eventHandler(event, eventEnv || requestEnv, eventCtx || ctx) });
         requestEnv.requestId = state.requestId; state.context = requestContext({ request, env: requestEnv, ctx, state, data: state.data }); requestEnv.context = state.context; requestEnv.event = state.context.event;
@@ -43,3 +47,12 @@ export function createWorker({ fetch, scheduled, app = { name: "worker" }, auth,
 }
 
 function withRequestId(response, requestId) { const headers = new Headers(response.headers); headers.set("X-Request-ID", String(requestId)); return new Response(response.body, { status: response.status, statusText: response.statusText, headers }); }
+function isAdminPath(pathname) { return pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/api/admin" || pathname.startsWith("/api/admin/"); }
+function ensureScopeManifest(env, scopes) {
+  let registrations = scopeManifestPromises.get(env.DB);
+  if (!registrations) { registrations = new Map(); scopeManifestPromises.set(env.DB, registrations); }
+  const key = JSON.stringify(scopes);
+  let promise = registrations.get(key);
+  if (!promise) { promise = ensureScopes(env, scopes, { who: "system:update" }); registrations.set(key, promise); promise.catch(() => registrations.delete(key)); }
+  return promise;
+}

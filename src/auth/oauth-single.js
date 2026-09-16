@@ -35,7 +35,7 @@ export function createAuth(options = {}) {
     name: "auth", displayName: options.displayName || "Authentication", packageName: PACKAGE_NAME, version: VERSION, strategy: OAUTH_SINGLE, repositories: options.repositories || authRepositoryDefinitions,
     dataResources: options.dataResources || [], routes: options.routes || [],
     healthchecks: options.healthchecks || [], circuitBreakers: options.circuitBreakers || [],
-    async handle(request, env) {
+    async handle(request, env, _ctx, state) {
       const url = new URL(request.url);
       if (url.pathname === "/auth/login") return login(request, env);
       if (url.pathname === "/auth/callback") return callback(request, env);
@@ -45,10 +45,10 @@ export function createAuth(options = {}) {
         if (originResponse) return originResponse;
         return logout(request, env, names.session, options);
       }
-      if (url.pathname === "/api/me") return secureJson({ user: publicUser(await resolveUser(request, env)) });
+      if (url.pathname === "/api/me") return secureJson({ user: publicUser(await resolveRequestUser(request, env, state)) });
       if (!protectedPath(url.pathname) || publicPaths.some((path) => path === "/" ? url.pathname === "/" : url.pathname.startsWith(path))) return null;
       if (isMutation(request)) { const originResponse = checkOrigin(request, options.allowedOrigins); if (originResponse) return originResponse; }
-      const user = await resolveUser(request, env);
+      const user = await resolveRequestUser(request, env, state);
       if (user && options.authorize && !(await options.authorize({ request, url, user, env }))) {
         return url.pathname.startsWith("/api/") ? Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } }) : authError("Administrator access is required.", 403);
       }
@@ -59,7 +59,7 @@ export function createAuth(options = {}) {
     getUser: (request, env) => resolveUser(request, env),
     healthcheck: async (env) => ({ feature: "auth", component: "configuration", displayName: "Authentication configuration", state: Boolean(env?.DB) && [envName("issuer", "OIDC_ISSUER"), envName("clientId", "OIDC_CLIENT_ID"), envName("clientSecret", "OIDC_CLIENT_SECRET"), envName("sessionSecret", "AUTH_SESSION_SECRET")].every((key) => env?.[key] && !String(env[key]).startsWith("replace-with-")) ? "green" : "red" }),
     middleware(request, env, ctx, next, state) {
-      return this.handle(request, env, ctx).then((response) => response || next(request, env, ctx, state));
+      return this.handle(request, env, ctx, state).then((response) => response || next(request, env, ctx, state));
     },
   };
 
@@ -105,6 +105,10 @@ export function createAuth(options = {}) {
     return user;
   }
 
+  function resolveRequestUser(request, env, state) {
+    return state && Object.hasOwn(state, "user") ? state.user : resolveUser(request, env);
+  }
+
   async function resolveLoginUser(user, env, request) {
     const hydrated = await hydrateUser(user, env);
     if (options.loginAuthorize && !(await options.loginAuthorize({ user: hydrated, request, env }))) throw authError("Authentication is not currently permitted.", 403);
@@ -131,19 +135,24 @@ async function getUser(request, env, secretName = "AUTH_SESSION_SECRET", session
 async function configuration(env, options = {}) {
   const discoveryName = envNameFor(options, "discoveryUrl", "OIDC_DISCOVERY_URL");
   const configuredDiscovery = env[discoveryName];
+  const configuredIssuer = env[envNameFor(options, "issuer", "OIDC_ISSUER")];
   const discoveryUrl = configuredDiscovery ? (String(configuredDiscovery).endsWith("/.well-known/openid-configuration") ? configuredDiscovery : String(configuredDiscovery).replace(/\/+$/, "") + "/.well-known/openid-configuration") : normalizeIssuer(required(env, envNameFor(options, "issuer", "OIDC_ISSUER"))).slice(0, -1) + "/.well-known/openid-configuration";
   if (new URL(discoveryUrl).protocol !== "https:") throw new Error("OIDC discovery URL must use HTTPS");
+  const expectedIssuer = configuredIssuer ? normalizeIssuer(configuredIssuer) : issuerFromDiscoveryUrl(discoveryUrl);
+  const cacheKey = `${discoveryUrl}\0${expectedIssuer}`;
 
-  const cached = configurationCache.get(discoveryUrl); if (cached && cached.exp > Date.now()) return cached.value;
-  const existing = configurationRequests.get(discoveryUrl); if (existing) return existing;
+  const cached = configurationCache.get(cacheKey); if (cached && cached.exp > Date.now()) return cached.value;
+  const existing = configurationRequests.get(cacheKey); if (existing) return existing;
   const request = fetchWithTimeout(discoveryUrl).then(async (response) => {
     if (!response.ok) throw new Error("Unable to load OIDC configuration");
     const value = await response.json();
-    if (!value.issuer || new URL(value.issuer).protocol !== "https:") throw new Error("OIDC configuration returned an invalid issuer");
-    if (!value.jwks_uri || new URL(value.jwks_uri).protocol !== "https:") throw new Error("OIDC configuration returned an invalid JWKS URL");
-    configurationCache.set(discoveryUrl, { value, exp: Date.now() + OIDC_CACHE_MS }); return value;
-  }).finally(() => configurationRequests.delete(discoveryUrl));
-  configurationRequests.set(discoveryUrl, request); return request;
+    if (!value.issuer || new URL(value.issuer).protocol !== "https:" || normalizeIssuer(value.issuer) !== expectedIssuer) throw new Error("OIDC configuration returned an unexpected issuer");
+    requireHttpsEndpoint(value.authorization_endpoint, "authorization");
+    requireHttpsEndpoint(value.token_endpoint, "token");
+    requireHttpsEndpoint(value.jwks_uri, "JWKS");
+    configurationCache.set(cacheKey, { value, exp: Date.now() + OIDC_CACHE_MS }); return value;
+  }).finally(() => configurationRequests.delete(cacheKey));
+  configurationRequests.set(cacheKey, request); return request;
 }
 async function verify(token, config, clientId, expectedNonce) {
   const [head, body, signature] = String(token || "").split("."); if (!head || !body || !signature) throw new Error("Malformed ID token");
@@ -161,6 +170,8 @@ async function getJwks(uri) {
 }
 async function fetchWithTimeout(input, init = {}) { return fetch(input, { ...init, signal: AbortSignal.timeout(OIDC_TIMEOUT_MS) }); }
 function normalizeIssuer(value) { return String(value).replace(/\/+$/, "") + "/"; }
+function issuerFromDiscoveryUrl(value) { const url = new URL(value); url.pathname = url.pathname.replace(/\/\.well-known\/openid-configuration$/, "").replace(/\/+$/, ""); url.search = ""; url.hash = ""; return normalizeIssuer(url.href); }
+function requireHttpsEndpoint(value, label) { if (!value || new URL(value).protocol !== "https:") throw new Error(`OIDC configuration returned an invalid ${label} endpoint`); }
 function isMutation(request) { return ["POST", "PUT", "PATCH", "DELETE"].includes(request.method); }
 function checkOrigin(request, allowedOrigins = []) {
   let requestOrigin;
