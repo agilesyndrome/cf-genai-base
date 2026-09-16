@@ -73,7 +73,9 @@ must remain in the application router rather than in the shared auth package.
 
 `createWorker` accepts `dataResources`, and features may expose the same
 manifest through `feature.dataResources`. Each resource must declare a safe
-name, table, explicit columns, and one scope: `user`, `tenant`, or `system`.
+name, table, explicit columns, and one scope: `user`, `tenant`, `public`, or
+`system`. Public resources are read-only and predicate on the worker's
+`publicTenantId`, including for authenticated users.
 Resources may also declare allowed operations (`read`, `create`, `update`, and
 `delete`); reads support bounded native pagination through
 `reader.page({ limit, offset })` and `reader.count()`, plus safe filtered

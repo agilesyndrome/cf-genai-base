@@ -62,6 +62,14 @@ test("public tenant reads require an explicitly public resource and tenant", asy
   assert.deepEqual(await privateReader.tenant.list("recipes"), []);
 });
 
+test("public resources are readable through the system public tenant", async () => {
+  const db = database();
+  const reader = createDataReader({ DB: db }, { resources: [{ name: "adventures", table: "adventures", scope: "public", columns: ["id", "tenant_id", "name"], readableColumns: ["id", "tenant_id", "name"] }], context: { userId: "user-1", publicTenantId: "gta-public", tenantId: "private-tenant", system: false } });
+  assert.equal((await reader.public.list("adventures"))[0].id, "recipe-1");
+  assert.match(db.calls[0].sql, /FROM "adventures" WHERE "tenant_id"=\?/);
+  assert.deepEqual(db.calls[0].args, ["gta-public"]);
+});
+
 test("base enforces column capabilities even on tenant writes", async () => {
   const db = database();
   const resource = { ...recipes, columnScopes: { title: "recipe:publish-public" } };

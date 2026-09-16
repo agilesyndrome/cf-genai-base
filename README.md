@@ -76,8 +76,9 @@ Use the selected D1 target (local by default) to inspect and update users:
 
 Features may register D1 resources with `dataResources` and receive the
 scoped reader on the request state as `state.data`. Resources declare `user`,
-`tenant`, or `system` scope, their physical table, and an explicit column
-allowlist. Use `state.data.tenant`, `state.data.user`, or `state.data.system`;
+`tenant`, `public`, or `system` scope, their physical table, and an explicit column
+allowlist. Use `state.data.tenant`, `state.data.public`, `state.data.user`, or
+`state.data.system`;
 the reader applies ownership predicates, supports bounded native pagination via
 page with limit/offset, count, and safe bulk updateWhere/deleteWhere
 operations, and never accepts raw SQL. Resources can explicitly restrict
@@ -87,7 +88,9 @@ Anonymous tenant reads require both publicTenantId on createWorker and a
 resource-level publicRead declaration. Use publicRead true only when the
 whole resource is public; for opt-in rows use a publicRead column/value
 declaration such as visibility=public. Anonymous reads never grant anonymous
-system access.
+system access. A `public` resource is read-only and always predicates on the
+worker's `publicTenantId`, including authenticated users; use it for shared
+catalog data such as GTA's `gta-public` tenant.
 
 Applications may pass subscriptionManifest to createWorker to register their
 own subscription IDs and entitlement values. Base exposes

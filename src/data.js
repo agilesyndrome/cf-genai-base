@@ -1,7 +1,7 @@
 import { auditLog, createD1 } from "./core.js";
 import { ensureUser, getAuthorizationUser, listUserGrants, listUserTenants, verifyImpersonationToken } from "./authorization.js";
 
-export const DATA_SCOPES = ["user", "tenant", "system"];
+export const DATA_SCOPES = ["user", "tenant", "public", "system"];
 export const DATA_OPERATIONS = ["read", "create", "update", "delete"];
 
 export class DataScopeError extends Error {
@@ -20,7 +20,7 @@ export function normalizeDataResources(resources = []) {
     if (names.has(name)) throw new TypeError(`Duplicate data resource: ${name}`);
     names.add(name);
     const scope = String(resource.scope || "").toLowerCase();
-    if (!DATA_SCOPES.includes(scope)) throw new TypeError(`Data resource ${resource.name} requires scope user, tenant, or system`);
+    if (!DATA_SCOPES.includes(scope)) throw new TypeError(`Data resource ${resource.name} requires scope user, tenant, public, or system`);
     const columns = [...new Set((resource.columns || []).map(String))];
     if (!columns.length || columns.some((column) => !/^[a-z][a-z0-9_]*$/.test(column))) throw new TypeError(`Data resource ${resource.name} requires safe columns`);
     const idColumn = String(resource.idColumn || "id");
@@ -28,7 +28,7 @@ export function normalizeDataResources(resources = []) {
     const ownerColumn = resource.ownerColumn ? String(resource.ownerColumn) : "user_id";
     const tenantColumn = resource.tenantColumn ? String(resource.tenantColumn) : "tenant_id";
     if (scope === "user" && !columns.includes(ownerColumn)) throw new TypeError(`User resource ${resource.name} must include ${ownerColumn}`);
-    if (scope === "tenant" && !columns.includes(tenantColumn)) throw new TypeError(`Tenant resource ${resource.name} must include ${tenantColumn}`);
+    if (["tenant", "public"].includes(scope) && !columns.includes(tenantColumn)) throw new TypeError(`${scope} resource ${resource.name} must include ${tenantColumn}`);
     const filterableColumns = [...new Set((resource.filterableColumns || columns).map(String))];
     const orderableColumns = [...new Set((resource.orderableColumns || columns).map(String))];
     for (const column of [...filterableColumns, ...orderableColumns]) if (!columns.includes(column)) throw new TypeError(`Data resource ${resource.name} references an unselected column`);
@@ -172,13 +172,13 @@ export function createDataReader(env, { resources = [], context } = {}) {
     return resource;
   }
 
-  return { user: scope("user"), tenant: scope("tenant"), system: scope("system"), context: getContext, resources: [...registry.values()] };
+  return { user: scope("user"), tenant: scope("tenant"), public: scope("public"), system: scope("system"), context: getContext, resources: [...registry.values()] };
 }
 
 export async function requestDataContext(env, { state = {}, request, publicTenantId = null } = {}) {
   let authUser = state.authUser || (state.user ? await ensureUser(env, state.user, { who: `user:${state.user.sub || "unknown"}` }) : null);
   const system = Boolean(state.user?.auth_strategy === "http_basic" || (authUser && authUser.is_admin));
-  if (!authUser) return { userId: null, tenantId: publicTenantId, public: Boolean(publicTenantId), system: false };
+  if (!authUser) return { userId: null, tenantId: publicTenantId, publicTenantId, public: Boolean(publicTenantId), system: false };
   const impersonation = system ? await verifyImpersonationToken(request?.headers?.get("X-CF-GenAI-Impersonation") || readCookie(request, "__Host-cfgenai_impersonation"), env) : null;
   if (impersonation) {
     const targetUser = await getAuthorizationUser(env, impersonation.targetUserId, { who: `user:${impersonation.adminUserId}` });
@@ -188,11 +188,11 @@ export async function requestDataContext(env, { state = {}, request, publicTenan
   const [tenants, grants] = await Promise.all([listUserTenants(env, authUser.id, { who }), listUserGrants(env, authUser.id, { who })]);
   const requestedTenant = state.tenantId || request?.headers?.get("X-Tenant-ID") || null;
   const tenant = requestedTenant ? tenants.find((item) => item.id === requestedTenant) : tenants.length === 1 ? tenants[0] : null;
-  return { userId: authUser.id, tenantId: tenant?.id || null, public: false, system, scopes: grants.map((grant) => grant.scope_name), tenants, invalidTenant: Boolean(requestedTenant && !tenant), impersonated: Boolean(impersonation), impersonatedBy: impersonation?.adminUserId || null };
+  return { userId: authUser.id, tenantId: tenant?.id || null, publicTenantId, public: false, system, scopes: grants.map((grant) => grant.scope_name), tenants, invalidTenant: Boolean(requestedTenant && !tenant), impersonated: Boolean(impersonation), impersonatedBy: impersonation?.adminUserId || null };
 }
 
 function isAllowed(resource, requestedScope, actor, operation) {
-    const allowed = requestedScope === "system" ? Boolean(actor.system) : requestedScope === resource.scope && (requestedScope === "user" ? Boolean(actor.userId) : Boolean(actor.tenantId && (actor.userId || (actor.public && resource.publicRead))));
+    const allowed = requestedScope === "system" ? Boolean(actor.system) : requestedScope === resource.scope && (requestedScope === "user" ? Boolean(actor.userId) : requestedScope === "public" ? Boolean(actor.publicTenantId && operation === "read") : Boolean(actor.tenantId && (actor.userId || (actor.public && resource.publicRead))));
   if (!allowed || !resource.operations.includes(operation)) {
     auditLog({ who: actorLabel(actor), operation: "deny", resource: `data:${resource.name}:${requestedScope}:${operation}` });
     return false;
@@ -214,6 +214,7 @@ function assertColumnScopes(resource, actor, columns) {
 
 function addScopePredicate(resource, requestedScope, actor, predicates, bindings) {
   if (requestedScope === "user") { predicates.push(`${quote(resource.ownerColumn)}=?`); bindings.push(actor.userId); }
+  if (requestedScope === "public") { predicates.push(`${quote(resource.tenantColumn)}=?`); bindings.push(actor.publicTenantId); }
   if (requestedScope === "tenant") { predicates.push(`${quote(resource.tenantColumn)}=?`); bindings.push(actor.tenantId); if (actor.public && resource.publicRead && typeof resource.publicRead === "object") { predicates.push(`${quote(resource.publicRead.column)}=?`); bindings.push(resource.publicRead.value); } }
 }
 
