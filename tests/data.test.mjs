@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DataScopeError, createDataReader, normalizeDataResources } from "../src/data.js";
+import { DataScopeError, createDataReader, normalizeDataResources } from "../src/data/index.js";
 
 function database() {
   const calls = [];
@@ -60,6 +60,14 @@ test("public tenant reads require an explicitly public resource and tenant", asy
   assert.equal((await reader.tenant.list("recipes"))[0].id, "recipe-1");
   const privateReader = createDataReader({ DB: db }, { resources: [recipes], context: { tenantId: "tenant-a", public: true, system: false } });
   assert.deepEqual(await privateReader.tenant.list("recipes"), []);
+});
+
+test("public resources are readable through the system public tenant", async () => {
+  const db = database();
+  const reader = createDataReader({ DB: db }, { resources: [{ name: "adventures", table: "adventures", scope: "public", columns: ["id", "tenant_id", "name"], readableColumns: ["id", "tenant_id", "name"] }], context: { userId: "user-1", publicTenantId: "gta-public", tenantId: "private-tenant", system: false } });
+  assert.equal((await reader.public.list("adventures"))[0].id, "recipe-1");
+  assert.match(db.calls[0].sql, /FROM "adventures" WHERE "tenant_id"=\?/);
+  assert.deepEqual(db.calls[0].args, ["gta-public"]);
 });
 
 test("base enforces column capabilities even on tenant writes", async () => {

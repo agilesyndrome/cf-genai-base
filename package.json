@@ -1,17 +1,26 @@
 {
   "name": "@agilesyndrome/cf-genai-base",
-  "version": "4.1.3",
+  "version": "5.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.js",
-    "./authorization": "./src/authorization.js",
-    "./data": "./src/data.js",
-    "./core": "./src/core.js",
+    "./auth": "./src/auth/index.js",
+    "./data": "./src/data/index.js",
+    "./api": "./src/api/index.js",
+    "./event-hub": "./src/core/event-hub.js",
+    "./repository": "./src/repository.js",
+    "./app": "./src/app.js",
+    "./admin": "./src/admin/index.js",
+    "./core": "./src/core/index.js",
     "./ui": "./src/ui/index.js",
+    "./ui/react": "./src/ui/react/index.jsx",
     "./ui/styles.css": "./src/ui/styles.css"
   },
   "description": "Lean Worker lifecycle and security helpers for Cloudflare sites.",
   "license": "MIT",
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -20,6 +29,7 @@
     "src",
     "migrations",
     "README.md",
+    "changelog.md",
     "CONTRACT.md",
     "LICENSE"
   ],
@@ -29,7 +39,7 @@
   },
   "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme",
   "scripts": {
-    "check": "node --check src/index.js && node --check src/core.js && node --check src/authorization.js && node --check src/data.js",
+    "check": "node --check src/index.js && node --check src/core/index.js && node --check src/core/jobs.js && node --check src/core/event-hub.js && node --check src/auth/index.js && node --check src/runtime/worker.js && node --check src/runtime/features.js && node --check src/runtime/health.js && node --check src/admin/index.js && node --check src/admin/routes.js && node --check src/data/index.js && node --check src/data/resources.js && node --check src/data/reader.js && node --check src/data/context.js && node --check src/api/index.js && node --check src/api/contracts.js && node --check src/api/client.js && node --check src/api/jobs.js && node --check src/ui/index.js",
     "test": "node --test tests/*.test.mjs",
     "build": "npm run check && npm test && npm pack --dry-run"
   }

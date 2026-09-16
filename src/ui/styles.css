@@ -7,3 +7,37 @@
   --cf-ui-primary: #2f6f52;
   --cf-ui-danger: #a33b32;
 }
+
+.cf-ui-admin-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100%; gap: 1.5rem; color: var(--cf-ui-text); font: 15px/1.45 system-ui, sans-serif; }
+.cf-ui-admin-nav { padding: 1rem; border-right: 1px solid var(--cf-ui-border); }
+.cf-ui-admin-nav nav, .cf-ui-admin-nav section { display: grid; gap: .2rem; }
+.cf-ui-admin-nav section + section { margin-top: 1.5rem; }
+.cf-ui-admin-nav a { padding: .5rem .65rem; border-radius: .45rem; color: inherit; text-decoration: none; }
+.cf-ui-admin-nav a:hover, .cf-ui-admin-nav a[aria-current="page"] { background: var(--cf-ui-surface); color: var(--cf-ui-primary); }
+.cf-ui-admin-title, .cf-ui-nav-label { margin: 0 0 .5rem; font-weight: 700; }
+.cf-ui-nav-label { color: var(--cf-ui-muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+.cf-ui-admin-content { min-width: 0; padding: 2rem 1rem; }
+.cf-ui-card { padding: 1rem; border: 1px solid var(--cf-ui-border); border-radius: .65rem; background: var(--cf-ui-bg); }
+.cf-ui-card + .cf-ui-card { margin-top: 1rem; }
+.cf-ui-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.cf-ui-table-wrap { overflow-x: auto; }
+.cf-ui-card table { width: 100%; border-collapse: collapse; }
+.cf-ui-card th, .cf-ui-card td { padding: .7rem; border-bottom: 1px solid var(--cf-ui-border); text-align: left; vertical-align: top; }
+.cf-ui-card th small, .cf-ui-card td small, .cf-ui-list small { display: block; color: var(--cf-ui-muted); font-weight: 400; }
+.cf-ui-status, .cf-ui-card p { color: var(--cf-ui-muted); }
+.cf-ui-error { color: var(--cf-ui-danger); }
+.cf-ui-status-badge { font-weight: 700; text-transform: capitalize; }
+.cf-ui-status-green, .cf-ui-status-on, .cf-ui-job-succeeded { color: #26734d; }
+.cf-ui-status-yellow { color: #9a6b00; }
+.cf-ui-status-red, .cf-ui-status-tripped, .cf-ui-job-failed { color: var(--cf-ui-danger); }
+.cf-ui-status-off, .cf-ui-status-cancelled { color: var(--cf-ui-muted); }
+.cf-ui-list, .cf-ui-inline-list, .cf-ui-check-list { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.cf-ui-inline-list { gap: .2rem; }
+.cf-ui-breaker { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .75rem; padding: .75rem 0; border-bottom: 1px solid var(--cf-ui-border); }
+.cf-ui-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+.cf-ui-card button { padding: .45rem .65rem; border: 1px solid var(--cf-ui-border); border-radius: .4rem; background: var(--cf-ui-bg); color: inherit; cursor: pointer; }
+.cf-ui-card button:disabled { cursor: wait; opacity: .6; }
+.cf-ui-check-list label { display: flex; align-items: center; gap: .35rem; }
+.cf-ui-job-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; position: fixed; right: 1rem; bottom: 1rem; z-index: 10; max-width: min(32rem, calc(100vw - 2rem)); padding: .8rem 1rem; border: 1px solid var(--cf-ui-border); border-radius: .6rem; background: var(--cf-ui-bg); box-shadow: 0 .5rem 2rem #0002; }
+.cf-ui-job-banner button { border: 0; background: transparent; color: inherit; cursor: pointer; text-decoration: underline; }
+@media (max-width: 720px) { .cf-ui-admin-shell { grid-template-columns: 1fr; } .cf-ui-admin-nav { border-right: 0; border-bottom: 1px solid var(--cf-ui-border); } .cf-ui-breaker { grid-template-columns: 1fr; } }
