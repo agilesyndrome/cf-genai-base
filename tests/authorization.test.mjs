@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorker } from "../src/index.js";
-import { DEFAULT_TENANT_ID, createImpersonationToken, ensureUser, normalizeScopes, verifyImpersonationToken } from "../src/authorization.js";
-import { requestDataContext } from "../src/data.js";
+import { DEFAULT_TENANT_ID, createImpersonationToken, ensureUser, normalizeScopes, verifyImpersonationToken } from "../src/auth/index.js";
+import { requestDataContext } from "../src/data/index.js";
 import fs from "node:fs/promises";
 
 const ctx = { waitUntil() {} };
@@ -106,7 +106,7 @@ test("feature catalog normalizes package metadata and rolls up health severity",
       return statement;
     }
   };
-  const { listFeatureCatalog } = await import("../src/core.js");
+  const { listFeatureCatalog } = await import("../src/core/index.js");
   const catalog = await listFeatureCatalog({ DB: db }, [{ name: "auth", displayName: "Authentication", packageName: "@example/auth", version: "2.0.0" }, { name: "llm", displayName: "Language models", packageName: "@example/llm", version: "3.0.0" }]);
   assert.deepEqual(catalog.map((item) => [item.feature, item.health]), [["auth", "yellow"], ["base", "yellow"], ["llm", "red"]]);
   assert.equal(catalog[0].package_name, "@example/auth");

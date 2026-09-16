@@ -7,6 +7,6 @@ export { ensureFeatureManifests } from "./runtime/features.js";
 export { assertBoot, validateBoot, methodNotAllowed, healthResponse } from "./runtime/health.js";
 export { defineApp } from "./app.js";
 export * from "./core/index.js";
-export * from "./data.js";
+export * from "./data/index.js";
 export * from "./auth/index.js";
 export { secureResponse } from "./core/security.js";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DataScopeError, createDataReader, normalizeDataResources } from "../src/data.js";
+import { DataScopeError, createDataReader, normalizeDataResources } from "../src/data/index.js";
 
 function database() {
   const calls = [];

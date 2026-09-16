@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Event, createEventHandler, requestContext, requestIdentity, sameOrigin } from "../src/core.js";
+import { Event, createEventHandler, requestContext, requestIdentity, sameOrigin } from "../src/core/index.js";
 
 test("Event and request context use the canonical identity contract", async () => {
   const received = [];

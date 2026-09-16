@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRepositories, defineRepository } from "../src/repository.js";
 import { defineApp } from "../src/app.js";
-import { defineRoute, dispatchRoutes } from "../src/api/router.js";
+import { defineRoute, dispatchRoutes } from "../src/api/contracts.js";
 import { escapeHtml, htmlResponse } from "../src/ui/server.js";
 import { assertSecurityHeaders } from "../src/api/testing.js";
 

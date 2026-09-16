@@ -1,7 +1,7 @@
 import { ensureSubscriptionManifest, SubscriptionError } from "../auth/index.js";
 import { auditedD1, createEventHandler, listFeatureHealth, requestActor, requestContext, secureResponse } from "../core/index.js";
 import { createRepositories } from "../repository.js";
-import { dispatchRoutes } from "../api/router.js";
+import { dispatchRoutes } from "../api/contracts.js";
 import { defineApp } from "../app.js";
 import { createDataReader } from "../data/reader.js";
 import { DataScopeError, normalizeDataResources } from "../data/resources.js";

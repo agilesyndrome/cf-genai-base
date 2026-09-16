@@ -31,8 +31,8 @@ in module scope. Background work is scheduled through ctx.waitUntil.
   page helpers.
 - src/ui/: browser components grouped into access controls, catalogs, styles,
   and groups.
-- src/core.js and src/authorization.js: intentionally small compatibility
-  facades for the historical public subpaths.
+- src/core/index.js, src/auth/index.js, and src/data/index.js: canonical
+  entrypoints for the package's core, authentication, and data modules.
 - CONTRACT.md: shared site and feature contract.
 - README.md: integration examples.
 - @agilesyndrome/cf-genai-cli: shared local project and release lifecycle.

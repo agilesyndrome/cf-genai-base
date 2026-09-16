@@ -7,7 +7,7 @@ Use D1 bindings for durable application data and R2 bindings for binary assets;
 do not put either into module-level state.
 
 Base also provides provider-neutral authorization helpers and browser components
-through `@agilesyndrome/cf-genai-base/authorization` and
+through `@agilesyndrome/cf-genai-base/auth` and
 `@agilesyndrome/cf-genai-base/ui`. Applications declare their scope manifest,
 while base owns the user, scope, and grant records plus the generic user-access
 API. The UI components are themeable with CSS custom properties and do not
@@ -55,9 +55,9 @@ Cloudflare configuration is incomplete.
 The package is organized by responsibility: `runtime` composes Workers,
 `core` owns request/event/security/D1 primitives, `auth` owns authorization
 data access, `api` owns route contracts and the browser client, `admin` owns
-platform administration, and `ui` owns shared browser components. The root
-exports and compatibility subpaths remain stable while these implementation
-modules stay independently readable.
+platform administration, and `ui` owns shared browser components. Each
+responsibility has a canonical folder entrypoint; import from `core`, `auth`,
+`data`, `api`, `admin`, or `ui` as appropriate.
 
 Apply `migrations/0002_core.sql` after the authorization migration. The package exports `registerHealthcheck`, `updateHealthcheck`, `registerCircuitBreaker`, `setCircuitBreaker`, and `evaluateCircuitBreaker` from `/cf-genai-base`. Healthchecks use `red`, `yellow` (unknown/transient), or `green`; breakers use `off`, `tripped`, or `on`, with `any` or `all` healthcheck evaluation. Automated evaluation may only move `on` to `tripped`, or self-healing `tripped` to `on`; admin API writes are the human control plane for the `off` state.
 
