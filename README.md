@@ -44,10 +44,10 @@ replace the default Cookbook links while keeping the System links consistent.
 
 ## Shared platform helpers
 
-`createWorker` can own `/health` and `/api/health`, run a boot validator before
-requests, and optionally deliver server-side PostHog events. Use
-`assertBoot(env, { bindings: ["DB"], required: ["AUTH_SESSION_SECRET"] })` in a
-site initializer to fail closed when its Cloudflare configuration is incomplete.
+`createWorker` can own `/health` and `/api/health`, and run a boot validator
+before requests. Use `assertBoot(env, { bindings: ["DB"], required:
+["AUTH_SESSION_SECRET"] })` in a site initializer to fail closed when its
+Cloudflare configuration is incomplete.
 
 
 ## Core operational services
@@ -116,8 +116,7 @@ Request handlers receive a request-scoped environment containing `data`,
 `user`, `authUser`, `userId`, `context`, `event`, and an audited D1 binding.
 Call `await env.event("thing.happened", "domain", details)` to emit a
 normalized event. Features may provide `eventHandler(event, { env, ctx })`;
-this is the extension point for analytics integrations such as
-future analytics integrations.
+this is the extension point for feature integrations.
 
 The exported `Event`, `emitEvent`, `requestContext`, `userId`, `sameOrigin`,
 `readJson`, `secureJson`, `featureCircuit`, and `requireFeatureCircuit` helpers

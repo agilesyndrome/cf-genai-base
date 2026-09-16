@@ -3,7 +3,7 @@
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
 import { createAuthorizationTenant, createImpersonationToken, ensureScopes, ensureSubscriptionManifest, ensureUser, getAuthorizationTenant, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationTenants, listAuthorizationUsers, listGroups, listTenantSubscriptions, listUserGroups, listUserTenants, listUserGrants, replaceUserGroups, replaceUserTenants, replaceUserGrants, SubscriptionError, updateAuthorizationTenant } from "./authorization.js";
-import { auditedD1, Event, emitEvent, getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, requestContext, createEventHandler, setCircuitBreaker, updateHealthcheck, secureResponse } from "./core.js";
+import { auditedD1, getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, requestContext, createEventHandler, setCircuitBreaker, updateHealthcheck, secureResponse } from "./core.js";
 import { createRepositories } from "./repository.js";
 import { dispatchRoutes } from "./api/router.js";
 import { defineApp } from "./app.js";
@@ -36,7 +36,7 @@ export function ensureFeatureManifests(env, features = [], { who = "system:updat
   return promise;
 }
 
-export function createWorker({ fetch, scheduled, app = { name: "worker" }, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], apiRoutes = [], middleware = [], features = [], dataResources = [], repositories = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
+export function createWorker({ fetch, scheduled, app = { name: "worker" }, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], apiRoutes = [], middleware = [], features = [], dataResources = [], repositories = [], publicTenantId = null, health, boot, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const application = defineApp(app);
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
@@ -96,7 +96,6 @@ export function createWorker({ fetch, scheduled, app = { name: "worker" }, auth,
           return layer(currentRequest, requestEnv, ctx, (nextRequest = currentRequest) => dispatch(index + 1, nextRequest), state);
         };
         const response = await dispatch(0);
-        if (metrics) metrics.request(request, response, requestEnv, ctx);
         return withRequestId(security ? secureResponse(response) : response, state.requestId);
       } catch (error) {
         console.error("[worker] request failed", error);
@@ -269,18 +268,6 @@ export function methodNotAllowed(allow = "GET") {
 export function healthResponse(env, details = {}) {
   return Response.json({ ok: true, version: String(env.BUILD_SHA || "unknown").slice(0, 7), build_number: env.BUILD_NUMBER ? String(env.BUILD_NUMBER) : null, ...details }, { headers: { "Cache-Control": "no-store" } });
 }
-
-export function createMetrics() {
-  return {
-    request(request, response, env, ctx) {
-      if (!ctx?.waitUntil || new URL(request.url).pathname === "/health") return;
-      const event = response.status >= 500 ? "server_error" : "request";
-      ctx.waitUntil(emitEvent(env, Event(requestActor(env), event, "http", new Date(), { path: new URL(request.url).pathname, method: request.method, status: response.status }), ctx));
-    },
-    track: (env, event, properties, ctx) => ctx?.waitUntil?.(emitEvent(env, Event(requestActor(env), event, "application", new Date(), properties), ctx)),
-  };
-}
-
 
 async function featureCatalogPage(env, features, state) {
   const catalog = await listFeatureCatalog(env, features, { who: requestActor(state) });

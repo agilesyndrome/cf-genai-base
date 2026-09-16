@@ -13,10 +13,10 @@ createWorker builds an ordered middleware chain:
 5. the site fetch handler.
 
 Each request receives an isolated state object. Middleware can return a response
-or call next(). The base owns the health endpoint, exception boundary, security headers, admin authentication and authorization, optional boot validation, scheduled handler exposure, and metrics hooks. Sites continue to own routing, HTML, D1 queries, R2 object keys, and domain-specific policies.
+or call next(). The base owns the health endpoint, exception boundary, security headers, admin authentication and authorization, optional boot validation, and scheduled handler exposure. Sites continue to own routing, HTML, D1 queries, R2 object keys, and domain-specific policies.
 
 The base uses Cloudflare in-process bindings and does not retain request state
-in module scope. Background metrics work is scheduled through ctx.waitUntil.
+in module scope. Background work is scheduled through ctx.waitUntil.
 
 ## Repository layout
 

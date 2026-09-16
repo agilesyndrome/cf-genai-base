@@ -8,10 +8,10 @@ test("Event and request context use the canonical identity contract", async () =
   const state = { user: { authUser: { id: "u-1", provider: "clerk", subject: "sub-1", is_admin: true } } };
   const context = requestContext({ request: new Request("https://example.test/api"), env: { eventHandler: handler }, ctx: {}, state });
   assert.deepEqual(requestIdentity(state), { user: state.user, authUser: state.user.authUser, userId: "u-1", who: "user:u-1", isAuthenticated: true, isAdmin: true });
-  await context.event("passport.stamp.created", "passport", { stampId: "s-1" });
+  await context.event("resource.changed", "domain", { resourceId: "s-1" });
   assert.equal(received[0].who, "user:u-1");
-  assert.equal(received[0].what, "passport.stamp.created");
-  assert.equal(received[0].details.stampId, "s-1");
+  assert.equal(received[0].what, "resource.changed");
+  assert.equal(received[0].details.resourceId, "s-1");
 });
 
 test("same-origin and event contracts reject cross-site mutations", () => {
