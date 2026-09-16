@@ -9,7 +9,7 @@ export function Event(who, what, where, when = new Date(), details = {}) {
   };
 }
 
-export function createEventHandler(features = []) {
+export function createEventHandler(features = [], { eventHubBinding = "EVENT_HUB" } = {}) {
   const handlers = features.flatMap((feature) => {
     const handler = feature?.eventHandler || feature?.event_handler;
     return typeof handler === "function" ? [handler.bind(feature)] : [];
@@ -17,9 +17,34 @@ export function createEventHandler(features = []) {
   return async (event, env, ctx) => {
     if (!event) return null;
     eventLog("info", event.what, { who: event.who, where: event.where, when: event.when, ...event.details });
-    await Promise.all(handlers.map((handler) => Promise.resolve(handler(event, { env, ctx }))));
+    await Promise.all([
+      ...handlers.map((handler) => Promise.resolve(handler(event, { env, ctx }))),
+      publishLiveEvent(env, event, eventHubBinding),
+    ]);
     return event;
   };
+}
+
+export function eventRooms(event) {
+  const audience = event?.details?.audience || {};
+  const rooms = [];
+  if (audience.userId) rooms.push(`user:${audience.userId}`);
+  if (audience.tenantId) rooms.push(`tenant:${audience.tenantId}`);
+  if (!rooms.length && String(event?.who || "").startsWith("user:")) rooms.push(String(event.who));
+  return [...new Set(rooms)];
+}
+
+async function publishLiveEvent(env, event, bindingName) {
+  const namespace = bindingName && env?.[bindingName];
+  if (!namespace || typeof namespace.idFromName !== "function") return;
+  for (const room of eventRooms(event)) {
+    try {
+      const stub = namespace.get(namespace.idFromName(room));
+      await stub.fetch("https://cf-genai-event-hub/publish", { method: "POST", headers: { "X-CF-GenAI-Event": "1", "Content-Type": "application/json" }, body: JSON.stringify(event) });
+    } catch (error) {
+      eventLog("warn", "live.event.publish.failed", { room, error: error?.message || String(error) });
+    }
+  }
 }
 
 export async function emitEvent(env, event, ctx) {

@@ -3,8 +3,6 @@ import test from "node:test";
 import { createRepositories, defineRepository } from "../src/repository.js";
 import { defineApp } from "../src/app.js";
 import { defineRoute, dispatchRoutes } from "../src/api/contracts.js";
-import { escapeHtml, htmlResponse } from "../src/ui/server.js";
-import { assertSecurityHeaders } from "../src/api/testing.js";
 
 test("API route contracts enforce identity, scope, and origin policy", async () => {
   const route = defineRoute({ method: "POST", path: "/api/items", auth: "user", scope: "items:write", csrf: true, handler: () => Response.json({ ok: true }) });
@@ -20,14 +18,6 @@ test("repositories provide named relations over scoped data readers", async () =
   const repos = createRepositories(env, [defineRepository({ name: "recipes", resource: "recipes", relations: { ingredients: { repository: "ingredients", foreignKey: "recipe_id" } } }), defineRepository({ name: "ingredients", resource: "ingredients" })]);
   assert.deepEqual(await repos.recipes.link("ingredients", { id: "r1" }), [{ id: "i1", recipe_id: "r1" }]);
   assert.equal(calls[0].options.where.recipe_id, "r1");
-});
-
-test("shared HTML helpers escape content and apply security headers", () => {
-  assert.equal(escapeHtml(`<script>alert("x")</script>`), "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
-  const response = htmlResponse("<h1>Safe</h1>");
-  assertSecurityHeaders(response);
-  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
-  assert.equal(response.headers.get("Content-Security-Policy").includes("script-src 'self'"), true);
 });
 
 test("app registration supports API-only workers", () => {

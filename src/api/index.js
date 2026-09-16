@@ -2,5 +2,6 @@ export { Event, emitEvent, json, readJson, readJsonClone, requireAdmin, requireF
 export { defineRepository, createRepositories, RepositoryError } from "../repository.js";
 export { defineRoute, matchRoute, dispatchRoutes } from "./contracts.js";
 export { apiFetch, apiJson } from "./client.js";
+export { jobResponse, liveEventsResponse } from "./jobs.js";
 export { defineApp } from "../app.js";
 export { assertSecurityHeaders, assertJsonError } from "./testing.js";

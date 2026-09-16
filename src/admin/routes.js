@@ -1,8 +1,7 @@
 import { createAuthorizationTenant, createImpersonationToken, ensureScopes, ensureUser, getAuthorizationTenant, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationTenants, listAuthorizationUsers, listGroups, listUserGroups, listUserGrants, listUserTenants, replaceUserGroups, replaceUserTenants, replaceUserGrants, updateAuthorizationTenant } from "../auth/index.js";
 import { getCircuitBreaker, listCircuitBreakers, listFeatureCatalog, listFeatureHealth, listHealthchecks, requestActor, setCircuitBreaker, updateHealthcheck } from "../core/index.js";
-import { featureCatalogPage } from "./catalog.js";
 
-export async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features, adminPage, siteAdminPage }) {
+export async function adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features }) {
   const url = new URL(request.url);
   if (!isAdminPath(url.pathname)) return next(request);
   const strategy = String(env?.AUTH_STRATEGY || "http_basic").trim().toLowerCase();
@@ -16,9 +15,6 @@ export async function adminBoundary(request, env, ctx, next, state, { provider, 
   const requiredScope = requiredScopeFor(url.pathname, scopeRoutes); const scopeAllowed = !requiredScope || await hasScope(env, state.user, requiredScope, { who: requestActor(state) });
   if (!scopeAllowed || (authorize && state.user.auth_strategy !== "http_basic" && !(await authorize({ request, url, user: state.user, env, ctx, state })))) return url.pathname.startsWith("/api/") ? Response.json({ error: "Administrator access is required." }, { status: 403, headers: { "Cache-Control": "no-store" } }) : new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } });
   const platformResponse = await authorizationApi(request, env, url, state, features); if (platformResponse) return platformResponse;
-  if (request.method === "GET" && isSiteAdminPage(url.pathname) && typeof siteAdminPage === "function") { const response = await siteAdminPage({ request, env, url, state, features }); if (response) return response; }
-  if (request.method === "GET" && isPlatformAdminPage(url.pathname) && typeof adminPage === "function") { if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } }); const response = await adminPage({ request, env, url, state, features }); if (response) return response; }
-  if (url.pathname === "/admin/features" && request.method === "GET") { if (!(state.user.auth_strategy === "http_basic" || (state.authUser && state.authUser.is_admin))) return new Response("Administrator access is required.", { status: 403, headers: { "Cache-Control": "no-store" } }); return featureCatalogPage(env, features, state); }
   return next(request);
 }
 
@@ -59,11 +55,9 @@ async function authorizationApi(request, env, url, state, features = []) {
   return null;
 }
 
-function isPlatformAdminPage(pathname) { return ["/admin/users", "/admin/scopes", "/admin/groups", "/admin/features", "/admin/healthchecks", "/admin/circuit-breakers"].includes(pathname); }
-function isSiteAdminPage(pathname) { return pathname === "/admin/site" || pathname.startsWith("/admin/site/"); }
 function isAdminPath(pathname) { return pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/api/admin" || pathname.startsWith("/api/admin/"); }
 function requiredScopeFor(pathname, routes) { const route = routes.find((entry) => typeof entry.match === "function" ? entry.match(pathname) : pathname === entry.path || pathname.startsWith(String(entry.path || "") + "/")); return route && route.scope ? route.scope : null; }
-function basicUser(request, env) { const token = String(env?.ADMIN_TOKEN || env?.admin_token || ""); if (!token) return null; const header = request.headers.get("Authorization") || ""; if (!header.toLowerCase().startsWith("basic ")) return null; let decoded; try { decoded = atob(header.slice(6).trim()); } catch { return null; } const separator = decoded.indexOf(":"); if (separator < 0 || !constantTimeEqual(decoded.slice(0, separator), "admin") || !constantTimeEqual(decoded.slice(separator + 1), token)) return null; return { sub: "basic:admin", email: "", name: "admin", roles: ["admin"], auth_strategy: "http_basic" }; }
+function basicUser(request, env) { const token = String(env?.ADMIN_TOKEN || ""); if (!token) return null; const header = request.headers.get("Authorization") || ""; if (!header.toLowerCase().startsWith("basic ")) return null; let decoded; try { decoded = atob(header.slice(6).trim()); } catch { return null; } const separator = decoded.indexOf(":"); if (separator < 0 || !constantTimeEqual(decoded.slice(0, separator), "admin") || !constantTimeEqual(decoded.slice(separator + 1), token)) return null; return { sub: "basic:admin", email: "", name: "admin", roles: ["admin"], auth_strategy: "http_basic" }; }
 function adminUnauthorized(request) { const headers = { "Cache-Control": "no-store", "WWW-Authenticate": "Basic realm=\"admin\", charset=\"UTF-8\"" }; return new URL(request.url).pathname.startsWith("/api/") ? Response.json({ error: "Authentication is required." }, { status: 401, headers }) : new Response("Authentication is required.", { status: 401, headers }); }
 function oauthUnauthorized(request, url) { if (url.pathname.startsWith("/api/")) return Response.json({ error: "Authentication is required." }, { status: 401, headers: { "Cache-Control": "no-store" } }); return Response.redirect(url.origin + "/auth/login?return_to=" + encodeURIComponent(safeReturnTo(url.pathname + url.search)), 302); }
 function safeReturnTo(value) { return value?.startsWith("/") && !value.startsWith("//") && !value.startsWith("/auth/") ? value : "/"; }

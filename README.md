@@ -27,20 +27,10 @@ export default createWorker({
 
 Features expose `middleware(request, env, ctx, next, state)` and may short-circuit reserved routes, attach request state, or call `next()`.
 
-Sites may provide `adminPage({ request, env, url, state, features })` to render
-the shared platform pages (`/admin/users`, `/admin/scopes`, `/admin/groups`,
-`/admin/features`, `/admin/healthchecks`, and `/admin/circuit-breakers`) inside
-their own shell. The callback runs after the shared authorization boundary and
-must return a `Response` or `null`.
-
-Sites may separately provide `siteAdminPage({ request, env, url, state,
-features })` for a `/admin/site/*` namespace. This is useful when a site wants
-its own admin pages to have an explicit boundary beside the shared platform
-pages.
-
-The shared `<cf-admin-shell>` accepts an optional `cookbook-links` attribute
-containing semicolon-separated `Label|URL|active-key` entries. This lets a site
-replace the default Cookbook links while keeping the System links consistent.
+Base protects `/admin` and `/api/admin`; the React UI package owns the browser
+pages. Import `AdminShell` and the platform catalogs from
+`@agilesyndrome/cf-genai-base/ui`. Sites provide their own application links and
+theme while the base components consume the shared JSON admin APIs.
 
 ## Shared platform helpers
 
@@ -59,9 +49,9 @@ platform administration, and `ui` owns shared browser components. Each
 responsibility has a canonical folder entrypoint; import from `core`, `auth`,
 `data`, `api`, `admin`, or `ui` as appropriate.
 
-Apply `migrations/0002_core.sql` after the authorization migration. The package exports `registerHealthcheck`, `updateHealthcheck`, `registerCircuitBreaker`, `setCircuitBreaker`, and `evaluateCircuitBreaker` from `/cf-genai-base`. Healthchecks use `red`, `yellow` (unknown/transient), or `green`; breakers use `off`, `tripped`, or `on`, with `any` or `all` healthcheck evaluation. Automated evaluation may only move `on` to `tripped`, or self-healing `tripped` to `on`; admin API writes are the human control plane for the `off` state.
+Apply `migrations/0002_core.sql` and `migrations/0006_jobs.sql` after the authorization migration. The package exports `registerHealthcheck`, `updateHealthcheck`, `registerCircuitBreaker`, `setCircuitBreaker`, `evaluateCircuitBreaker`, and generic job lifecycle helpers from `/cf-genai-base`. Healthchecks use `red`, `yellow` (unknown/transient), or `green`; breakers use `off`, `tripped`, or `on`, with `any` or `all` healthcheck evaluation. Automated evaluation may only move `on` to `tripped`, or self-healing `tripped` to `on`; admin API writes are the human control plane for the `off` state.
 
-Admin APIs are `GET /api/admin/healthchecks`, `PUT /api/admin/healthchecks/:id`, `GET /api/admin/circuit-breakers`, `GET|PUT /api/admin/circuit-breakers/:id`, and `GET /api/admin/features`. The browser route `/admin/features` renders the same feature catalog for administrators. The catalog lists each installed runtime feature, its `packageName` and `version`, its most severe healthcheck state, all feature healthchecks, and its circuit breakers (including the feature roll-up breaker). Feature manifests may expose `healthchecks` and `circuitBreakers`; add `displayName`, `packageName`, and `version` to make the installation identity explicit. Use `createD1(env, { who })` for downstream D1 calls; it emits EventLog and AuditLog console records with the requesting actor.
+Admin APIs are `GET /api/admin/healthchecks`, `PUT /api/admin/healthchecks/:id`, `GET /api/admin/circuit-breakers`, `GET|PUT /api/admin/circuit-breakers/:id`, and `GET /api/admin/features`. React platform components consume these JSON responses. The catalog lists each installed runtime feature, its `packageName` and `version`, its most severe healthcheck state, all feature healthchecks, and its circuit breakers (including the feature roll-up breaker). Feature manifests may expose `healthchecks` and `circuitBreakers`; add `displayName`, `packageName`, and `version` to make the installation identity explicit. Use `createD1(env, { who })` for downstream D1 calls; it emits EventLog and AuditLog console records with the requesting actor.
 
 
 ## User administration
@@ -125,14 +115,26 @@ Call `await env.event("thing.happened", "domain", details)` to emit a
 normalized event. Features may provide `eventHandler(event, { env, ctx })`;
 this is the extension point for feature integrations.
 
+Long-running features create a durable job with `createJob`, call
+`startJob`/`updateJobProgress`, and finish with `completeJob`, `failJob`, or
+`cancelJob`. Every lifecycle change is stored in `core_job_events` and emitted
+to the owning user's live event room. Configure the optional live transport by
+exporting `EventHub` from `@agilesyndrome/cf-genai-base/event-hub` and binding
+an `EVENT_HUB` Durable Object in the application Worker. The React package's
+`LiveEventsProvider`, `useJob`, `useJobs`, and `JobNotificationList` handle
+reconnects and refreshes; the feature remains responsible for its own job type,
+executor, and result UI.
+
 The exported `Event`, `emitEvent`, `requestContext`, `userId`, `sameOrigin`,
 `readJson`, `secureJson`, `featureCircuit`, and `requireFeatureCircuit` helpers
 are the shared identity, request, security, and feature-gating contracts.
 
-The layered web surface is available without another framework: `/api` exports
-route contracts, scoped repositories, and the browser `apiFetch`/`apiJson`
-client; `/ui/server` exports escaped HTML responses; and `/admin` exports small
-server-rendered admin navigation primitives. Repositories are registered with
+The layered web surface is React-first: `/api` exports route contracts, scoped
+repositories, the browser `apiFetch`/`apiJson` client, and job/event endpoints;
+`/ui` exports React admin primitives, live event hooks, and durable job
+notifications. Repositories are registered with
 `createWorker({ repositories })`, can be supplied by applications or features,
 and may declare links to other repositories while remaining behind the scoped
-data reader.
+data reader. `GET /api/jobs` and `GET /api/jobs/:id` expose an authenticated
+user's durable job records. `GET /api/events` upgrades to the authenticated live
+event stream when the optional `EVENT_HUB` Durable Object binding is configured.
