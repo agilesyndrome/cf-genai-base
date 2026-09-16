@@ -3,11 +3,16 @@
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
 import { createAuthorizationTenant, createImpersonationToken, ensureScopes, ensureSubscriptionManifest, ensureUser, getAuthorizationTenant, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationTenants, listAuthorizationUsers, listGroups, listTenantSubscriptions, listUserGroups, listUserTenants, listUserGrants, replaceUserGroups, replaceUserTenants, replaceUserGrants, SubscriptionError, updateAuthorizationTenant } from "./authorization.js";
-import { auditedD1, Event, emitEvent, getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, requestContext, createEventHandler, setCircuitBreaker, updateHealthcheck } from "./core.js";
+import { auditedD1, Event, emitEvent, getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, requestContext, createEventHandler, setCircuitBreaker, updateHealthcheck, secureResponse } from "./core.js";
+import { createRepositories } from "./repository.js";
+import { dispatchRoutes } from "./api/router.js";
+import { defineApp } from "./app.js";
+export { defineApp } from "./app.js";
 import { createDataReader, DataScopeError, normalizeDataResources, requestDataContext } from "./data.js";
 export * from "./core.js";
 export * from "./data.js";
 export * from "./authorization.js";
+export { secureResponse } from "./core.js";
 const featureRegistrationPromises = new WeakMap();
 
 export function ensureFeatureManifests(env, features = [], { who = "system:update" } = {}) {
@@ -31,11 +36,13 @@ export function ensureFeatureManifests(env, features = [], { who = "system:updat
   return promise;
 }
 
-export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], middleware = [], features = [], dataResources = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
+export function createWorker({ fetch, scheduled, app = { name: "worker" }, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], apiRoutes = [], middleware = [], features = [], dataResources = [], repositories = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
+  const application = defineApp(app);
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
   const eventHandler = createEventHandler(features);
-  const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : [])]);
+  const repositoryDefinitions = [...repositories, ...features.flatMap((feature) => Array.isArray(feature?.repositories) ? feature.repositories : [])];
+  const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : []), ...repositoryDefinitions.filter((definition) => definition.resourceDefinition).map((definition) => definition.resourceDefinition)]);
   const featureRoutes = features.flatMap((feature) => Array.isArray(feature?.routes) ? [async (request, env, ctx, next, state) => {
     for (const route of feature.routes) {
       const matches = typeof route?.match === "function" ? await route.match(request, env, state) : route?.path === new URL(request.url).pathname;
@@ -45,6 +52,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
   }] : []);
   const chain = [
             (request, env, ctx, next, state) => adminBoundary(request, env, ctx, next, state, { provider, authorize, scopes, scopeRoutes, features, adminPage, siteAdminPage }),
+    ...(apiRoutes.length ? [(request, env, ctx, next, state) => dispatchRoutes(request, env, ctx, state, apiRoutes).then((response) => response || next(request))] : []),
     ...features.flatMap((feature) => feature?.middleware ? [feature.middleware.bind(feature)] : []),
     ...featureRoutes,
     ...middleware,
@@ -57,11 +65,13 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         if (subscriptionManifest.length) await ensureSubscriptionManifest(env, subscriptionManifest, { who: "system:update" });
         const url = new URL(request.url);
         const state = Object.create(null);
+        state.requestId = crypto.randomUUID();
         if (provider?.getUser) state.user = await provider.getUser(request, env).catch(() => null);
         if (state.user?.authUser) state.authUser = state.user.authUser;
         state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request, publicTenantId }) });
         const requestEnv = Object.create(env || null);
-        Object.assign(requestEnv, { DB: env?.DB ? auditedD1(env.DB, requestActor(state)) : env?.DB, data: state.data, user: state.user || null, authUser: state.authUser || null, userId: state.authUser?.id || null, eventHandler: (event, eventEnv, eventCtx) => eventHandler(event, eventEnv || requestEnv, eventCtx || ctx) });
+        Object.assign(requestEnv, { app: application, DB: env?.DB ? auditedD1(env.DB, requestActor(state)) : env?.DB, data: state.data, repositories: createRepositories(requestEnv, repositoryDefinitions), user: state.user || null, authUser: state.authUser || null, userId: state.authUser?.id || null, eventHandler: (event, eventEnv, eventCtx) => eventHandler(event, eventEnv || requestEnv, eventCtx || ctx) });
+        requestEnv.requestId = state.requestId;
         state.context = requestContext({ request, env: requestEnv, ctx, state, data: state.data });
         requestEnv.context = state.context;
         requestEnv.event = state.context.event;
@@ -87,15 +97,21 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         };
         const response = await dispatch(0);
         if (metrics) metrics.request(request, response, requestEnv, ctx);
-        return security ? secureResponse(response) : response;
+        return withRequestId(security ? secureResponse(response) : response, state.requestId);
       } catch (error) {
         console.error("[worker] request failed", error);
-        if (error instanceof DataScopeError || error instanceof SubscriptionError) return secureResponse(Response.json({ error: error.message }, { status: 403, headers: { "Cache-Control": "no-store" } }));
-        return secureResponse(Response.json({ error: "Internal server error" }, { status: 500, headers: { "Cache-Control": "no-store" } }));
+        const errorResponse = error instanceof DataScopeError || error instanceof SubscriptionError ? Response.json({ error: error.message }, { status: 403, headers: { "Cache-Control": "no-store" } }) : Response.json({ error: "Internal server error" }, { status: 500, headers: { "Cache-Control": "no-store" } });
+        return withRequestId(security ? secureResponse(errorResponse) : errorResponse, error?.requestId || crypto.randomUUID());
       }
     },
     ...(scheduled ? { scheduled } : {}),
   };
+}
+
+function withRequestId(response, requestId) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Request-ID", String(requestId));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 
@@ -244,18 +260,6 @@ export function assertBoot(env, spec = {}) {
   const result = validateBoot(env, spec);
   if (!result.ok) throw new Error(`Worker boot validation failed: ${[...result.missingBindings, ...result.missingValues].join(", ")}`);
   return result;
-}
-
-export function secureResponse(response) {
-  const headers = new Headers(response.headers);
-  headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; worker-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests");
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "DENY");
-  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
-  headers.set("Cross-Origin-Opener-Policy", "same-origin");
-  headers.set("Strict-Transport-Security", "max-age=31536000");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 export function methodNotAllowed(allow = "GET") {

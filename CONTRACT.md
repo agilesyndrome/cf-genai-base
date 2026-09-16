@@ -2,6 +2,19 @@
 
 Every site built from this foundation follows the same edge contract.
 
+## API, UI, and repositories
+
+`defineRoute({ method, path, auth, scope, csrf, handler })` defines a route
+contract. Applications pass contracts through `createWorker({ apiRoutes })`;
+base enforces authentication, administrator status, same-origin mutation
+rules, and scope checks before invoking the handler. `@agilesyndrome/cf-genai-base/api`
+also exposes `apiFetch` and `apiJson` for browser clients.
+
+`createRepositories(env, definitions)` creates named application or feature
+repositories over the request-scoped data reader. Definitions may declare
+relations to other repositories. Repositories must not expose raw D1 or accept
+unvalidated table, column, or SQL fragments from callers.
+
 ## Worker entrypoint
 
 `createWorker({ fetch, features?, middleware?, auth?, authorize?, scheduled?, security? })` owns the Worker lifecycle and reserved admin boundary. Features run in declaration order and may call `next()` or return a response. A feature may also declare `{ routes: [{ match, handle }] }`; matching handlers receive `{ request, env, ctx, state, next }` and run before the site handler. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`

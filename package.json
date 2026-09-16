@@ -6,8 +6,13 @@
     ".": "./src/index.js",
     "./authorization": "./src/authorization.js",
     "./data": "./src/data.js",
+    "./api": "./src/api/index.js",
+    "./repository": "./src/repository.js",
+    "./app": "./src/app.js",
+    "./admin": "./src/admin/index.js",
     "./core": "./src/core.js",
     "./ui": "./src/ui/index.js",
+    "./ui/server": "./src/ui/server.js",
     "./ui/styles.css": "./src/ui/styles.css"
   },
   "description": "Lean Worker lifecycle and security helpers for Cloudflare sites.",

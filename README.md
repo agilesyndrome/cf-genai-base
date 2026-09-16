@@ -119,3 +119,11 @@ cf-genai-posthog.
 The exported `Event`, `emitEvent`, `requestContext`, `userId`, `sameOrigin`,
 `readJson`, `secureJson`, `featureCircuit`, and `requireFeatureCircuit` helpers
 are the shared identity, request, security, and feature-gating contracts.
+
+The layered web surface is available without another framework: `/api` exports
+route contracts, scoped repositories, and the browser `apiFetch`/`apiJson`
+client; `/ui/server` exports escaped HTML responses; and `/admin` exports small
+server-rendered admin navigation primitives. Repositories are registered with
+`createWorker({ repositories })`, can be supplied by applications or features,
+and may declare links to other repositories while remaining behind the scoped
+data reader.
