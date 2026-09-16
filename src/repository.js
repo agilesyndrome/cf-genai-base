@@ -1,4 +1,4 @@
-import { auditLog } from "./core.js";
+import { auditLog } from "./core/events.js";
 
 export class RepositoryError extends Error {
   constructor(message, status = 500) { super(message); this.name = "RepositoryError"; this.status = status; }

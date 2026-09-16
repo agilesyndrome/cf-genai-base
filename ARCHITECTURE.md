@@ -20,7 +20,19 @@ in module scope. Background work is scheduled through ctx.waitUntil.
 
 ## Repository layout
 
-- src/index.js: public Worker composition API.
+- src/index.js: public package surface only.
+- src/runtime/: Worker composition, health/boot helpers, and feature registration.
+- src/core/: event contracts, request identity, security responses, audited D1,
+  and feature circuits.
+- src/auth/: authorization users, scopes, tenants, groups, subscriptions, and
+  impersonation.
+- src/api/: route contracts, browser API client, and API test assertions.
+- src/admin/: platform admin middleware, catalog rendering, navigation, and
+  page helpers.
+- src/ui/: browser components grouped into access controls, catalogs, styles,
+  and groups.
+- src/core.js and src/authorization.js: intentionally small compatibility
+  facades for the historical public subpaths.
 - CONTRACT.md: shared site and feature contract.
 - README.md: integration examples.
 - @agilesyndrome/cf-genai-cli: shared local project and release lifecycle.

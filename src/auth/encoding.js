@@ -1,0 +1,6 @@
+export function parseJsonValue(value) { try { return JSON.parse(value); } catch { return value; } }
+export function deepEqual(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+export async function signValue(value, secret) { const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(secret)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)); return base64url(new Uint8Array(signature)); }
+export function base64url(bytes) { return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
+export function base64urlDecode(value) { const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4); return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0)); }
+export function constantTimeEqual(left, right) { const a = new TextEncoder().encode(String(left)), b = new TextEncoder().encode(String(right)); let result = a.length ^ b.length; for (let index = 0; index < Math.max(a.length, b.length); index += 1) result |= (a[index] || 0) ^ (b[index] || 0); return result === 0; }
