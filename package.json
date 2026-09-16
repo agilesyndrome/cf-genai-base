@@ -1,6 +1,6 @@
 {
   "name": "@agilesyndrome/cf-genai-base",
-  "version": "4.1.3",
+  "version": "5.0.0",
   "type": "module",
   "exports": {
     ".": "./src/index.js",
