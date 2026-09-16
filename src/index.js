@@ -57,6 +57,7 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         const url = new URL(request.url);
         const state = Object.create(null);
         if (provider?.getUser) state.user = await provider.getUser(request, env).catch(() => null);
+        if (state.user?.authUser) state.authUser = state.user.authUser;
         state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request, publicTenantId }) });
         if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(ensureFeatureManifests(env, features).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
@@ -112,7 +113,7 @@ async function adminBoundary(request, env, ctx, next, state, { provider, authori
     if (!origin || (() => { try { return new URL(origin).origin !== url.origin; } catch { return true; } })()) return Response.json({ error: "A same-origin request is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   }
   await ensureScopes(env, scopes, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
-  state.authUser = await ensureUser(env, state.user, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
+  state.authUser = state.user?.authUser || await ensureUser(env, state.user, { who: state.user?.auth_strategy === "http_basic" ? "user:admin" : `user:${state.user?.sub || "unknown"}` });
   state.requestedBy = requestActor(state);
   const requiredScope = requiredScopeFor(url.pathname, scopeRoutes);
   const scopeAllowed = !requiredScope || await hasScope(env, state.user, requiredScope, { who: requestActor(state) });

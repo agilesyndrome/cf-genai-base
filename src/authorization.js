@@ -129,7 +129,7 @@ export async function verifyImpersonationToken(token, env) {
 export async function hasScope(env, user, scope, { who = "system:read" } = {}) {
   const db = createD1(env, { who });
   if (user?.auth_strategy === "http_basic") return true;
-  const authUser = await ensureUser(env, user, { who });
+  const authUser = user?.authUser || await ensureUser(env, user, { who });
   if (!authUser) return false;
   if (Boolean(authUser.is_admin)) return true;
   return Boolean(await db.prepare(`SELECT 1 FROM ${AUTH_GRANT_TABLE} WHERE user_id=? AND scope_name=?`).bind(authUser.id, scope).first());
