@@ -270,7 +270,7 @@ export function healthResponse(env, details = {}) {
   return Response.json({ ok: true, version: String(env.BUILD_SHA || "unknown").slice(0, 7), build_number: env.BUILD_NUMBER ? String(env.BUILD_NUMBER) : null, ...details }, { headers: { "Cache-Control": "no-store" } });
 }
 
-export function createMetrics({ tokenEnv = "POSTHOG_TOKEN", host = "https://us.i.posthog.com" } = {}) {
+export function createMetrics() {
   return {
     request(request, response, env, ctx) {
       if (!ctx?.waitUntil || new URL(request.url).pathname === "/health") return;

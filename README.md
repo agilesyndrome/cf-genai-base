@@ -117,7 +117,7 @@ Request handlers receive a request-scoped environment containing `data`,
 Call `await env.event("thing.happened", "domain", details)` to emit a
 normalized event. Features may provide `eventHandler(event, { env, ctx })`;
 this is the extension point for analytics integrations such as
-cf-genai-posthog.
+future analytics integrations.
 
 The exported `Event`, `emitEvent`, `requestContext`, `userId`, `sameOrigin`,
 `readJson`, `secureJson`, `featureCircuit`, and `requireFeatureCircuit` helpers
