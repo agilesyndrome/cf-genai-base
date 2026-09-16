@@ -3,7 +3,7 @@
  * Site code owns domain routes and data; this owns lifecycle and edge concerns.
  */
 import { createAuthorizationTenant, createImpersonationToken, ensureScopes, ensureSubscriptionManifest, ensureUser, getAuthorizationTenant, getAuthorizationUser, hasScope, listAuthorizationScopes, listAuthorizationTenants, listAuthorizationUsers, listGroups, listTenantSubscriptions, listUserGroups, listUserTenants, listUserGrants, replaceUserGroups, replaceUserTenants, replaceUserGrants, SubscriptionError, updateAuthorizationTenant } from "./authorization.js";
-import { getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, setCircuitBreaker, updateHealthcheck } from "./core.js";
+import { auditedD1, Event, emitEvent, getCircuitBreaker, evaluateCircuitBreaker, listCircuitBreakers, listHealthchecks, listFeatureCatalog, listFeatureHealth, registerFeatureManifests, requestActor, requestContext, createEventHandler, setCircuitBreaker, updateHealthcheck } from "./core.js";
 import { createDataReader, DataScopeError, normalizeDataResources, requestDataContext } from "./data.js";
 export * from "./core.js";
 export * from "./data.js";
@@ -34,6 +34,7 @@ export function ensureFeatureManifests(env, features = [], { who = "system:updat
 export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], subscriptionManifest = [], scopeRoutes = [], middleware = [], features = [], dataResources = [], publicTenantId = null, health, boot, metrics, security = true, adminPage, siteAdminPage }) {
   if (typeof fetch !== "function") throw new TypeError("createWorker requires a fetch handler");
   const provider = auth || features.find((feature) => typeof feature?.getUser === "function");
+  const eventHandler = createEventHandler(features);
   const registeredDataResources = normalizeDataResources([...dataResources, ...features.flatMap((feature) => Array.isArray(feature?.dataResources) ? feature.dataResources : [])]);
   const featureRoutes = features.flatMap((feature) => Array.isArray(feature?.routes) ? [async (request, env, ctx, next, state) => {
     for (const route of feature.routes) {
@@ -59,14 +60,19 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
         if (provider?.getUser) state.user = await provider.getUser(request, env).catch(() => null);
         if (state.user?.authUser) state.authUser = state.user.authUser;
         state.data = createDataReader(env, { resources: registeredDataResources, context: () => requestDataContext(env, { state, request, publicTenantId }) });
+        const requestEnv = Object.create(env || null);
+        Object.assign(requestEnv, { DB: env?.DB ? auditedD1(env.DB, requestActor(state)) : env?.DB, data: state.data, user: state.user || null, authUser: state.authUser || null, userId: state.authUser?.id || null, eventHandler: (event, eventEnv, eventCtx) => eventHandler(event, eventEnv || requestEnv, eventCtx || ctx) });
+        state.context = requestContext({ request, env: requestEnv, ctx, state, data: state.data });
+        requestEnv.context = state.context;
+        requestEnv.event = state.context.event;
         if (env?.DB && features.some((feature) => typeof feature?.healthcheck === "function" || feature?.healthchecks?.length || feature?.healthChecks?.length || feature?.circuitBreakers?.length || feature?.circuit_breakers?.length)) ctx?.waitUntil?.(ensureFeatureManifests(env, features).catch((error) => console.error("[EventLog] feature manifest registration failed", error)));
         const dispatch = async (index, currentRequest = request) => {
           const layer = chain[index];
           if (!layer) {
             if (url.pathname === "/health" || url.pathname === "/api/health") {
-              const details = health ? await health(env, { request: currentRequest, ctx, state }) : {};
-              const featureHealth = env?.DB ? await listFeatureHealth(env, { who: "system:read" }).catch(() => []) : [];
-              return healthResponse(env, featureHealth.length ? { ...details, features: featureHealth } : details);
+              const details = health ? await health(requestEnv, { request: currentRequest, ctx, state }) : {};
+              const featureHealth = requestEnv?.DB ? await listFeatureHealth(requestEnv, { who: "system:read" }).catch(() => []) : [];
+              return healthResponse(requestEnv, featureHealth.length ? { ...details, features: featureHealth } : details);
             }
             if (url.pathname === "/api/tenant" && currentRequest.method === "GET") {
               const context = await state.data.context();
@@ -74,13 +80,13 @@ export function createWorker({ fetch, scheduled, auth, authorize, scopes = [], s
               if (context.invalidTenant) return Response.json({ error: "The requested tenant is not available." }, { status: 400 });
               return Response.json({ tenant: context.tenantId ? { id: context.tenantId, name: context.tenants?.find((tenant) => tenant.id === context.tenantId)?.name || null } : null, tenants: context.tenants || [] });
             }
-            return fetch(currentRequest, env, ctx, state);
+            return fetch(currentRequest, requestEnv, ctx, state);
           }
           if (typeof layer !== "function") throw new TypeError("Worker middleware must be a function");
-          return layer(currentRequest, env, ctx, (nextRequest = currentRequest) => dispatch(index + 1, nextRequest), state);
+          return layer(currentRequest, requestEnv, ctx, (nextRequest = currentRequest) => dispatch(index + 1, nextRequest), state);
         };
         const response = await dispatch(0);
-        if (metrics) metrics.request(request, response, env, ctx);
+        if (metrics) metrics.request(request, response, requestEnv, ctx);
         return security ? secureResponse(response) : response;
       } catch (error) {
         console.error("[worker] request failed", error);
@@ -242,6 +248,7 @@ export function assertBoot(env, spec = {}) {
 
 export function secureResponse(response) {
   const headers = new Headers(response.headers);
+  headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; worker-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -262,22 +269,12 @@ export function healthResponse(env, details = {}) {
 export function createMetrics({ tokenEnv = "POSTHOG_TOKEN", host = "https://us.i.posthog.com" } = {}) {
   return {
     request(request, response, env, ctx) {
-      if (!env?.[tokenEnv] || !ctx?.waitUntil || new URL(request.url).pathname === "/health") return;
+      if (!ctx?.waitUntil || new URL(request.url).pathname === "/health") return;
       const event = response.status >= 500 ? "server_error" : "request";
-      ctx.waitUntil(track(env, event, { path: new URL(request.url).pathname, method: request.method, status: response.status }, { tokenEnv, host }));
+      ctx.waitUntil(emitEvent(env, Event(requestActor(env), event, "http", new Date(), { path: new URL(request.url).pathname, method: request.method, status: response.status }), ctx));
     },
-    track: (env, event, properties, ctx) => ctx?.waitUntil?.(track(env, event, properties, { tokenEnv, host })),
+    track: (env, event, properties, ctx) => ctx?.waitUntil?.(emitEvent(env, Event(requestActor(env), event, "application", new Date(), properties), ctx)),
   };
-}
-
-async function track(env, event, properties, { tokenEnv, host }) {
-  try {
-    const token = String(env?.[tokenEnv] || "");
-    if (!token) return;
-    await fetch(`${host.replace(/\/+$/, "")}/capture/`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: token, event, properties: { ...properties, distinct_id: properties?.distinct_id || "anonymous" } }) });
-  } catch (error) {
-    console.error("[metrics] delivery failed", error);
-  }
 }
 
 

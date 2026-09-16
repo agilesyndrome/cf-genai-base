@@ -108,3 +108,14 @@ resource used with the wrong scope returns no rows; writes fail closed.
 Applications using scoped data must stop passing unrestricted `env.DB` to
 domain features. Their migrations still add and backfill ownership columns,
 and their resources must be registered with base.
+
+Request handlers receive a request-scoped environment containing `data`,
+`user`, `authUser`, `userId`, `context`, `event`, and an audited D1 binding.
+Call `await env.event("thing.happened", "domain", details)` to emit a
+normalized event. Features may provide `eventHandler(event, { env, ctx })`;
+this is the extension point for analytics integrations such as
+cf-genai-posthog.
+
+The exported `Event`, `emitEvent`, `requestContext`, `userId`, `sameOrigin`,
+`readJson`, `secureJson`, `featureCircuit`, and `requireFeatureCircuit` helpers
+are the shared identity, request, security, and feature-gating contracts.

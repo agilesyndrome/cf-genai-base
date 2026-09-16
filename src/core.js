@@ -2,7 +2,37 @@ export const HEALTHCHECK_STATES = ["red", "yellow", "green"];
 export const CIRCUIT_BREAKER_STATES = ["off", "tripped", "on"];
 export const HEALTHCHECK_MODES = ["any", "all"];
 export const BASE_PACKAGE_NAME = "@agilesyndrome/cf-genai-base";
-export const BASE_VERSION = "4.1.1";
+export const BASE_VERSION = "4.1.3";
+
+export function Event(who, what, where, when = new Date(), details = {}) {
+  return {
+    id: crypto.randomUUID(),
+    who: String(who || "system"),
+    what: String(what || "event"),
+    where: String(where || "application"),
+    when: when instanceof Date ? when.toISOString() : new Date(when || Date.now()).toISOString(),
+    details: details && typeof details === "object" ? details : { value: details },
+  };
+}
+
+export function createEventHandler(features = []) {
+  const handlers = features.flatMap((feature) => {
+    const handler = feature?.eventHandler || feature?.event_handler;
+    return typeof handler === "function" ? [handler.bind(feature)] : [];
+  });
+  return async (event, env, ctx) => {
+    if (!event) return null;
+    eventLog("info", event.what, { who: event.who, where: event.where, when: event.when, ...event.details });
+    await Promise.all(handlers.map((handler) => Promise.resolve(handler(event, { env, ctx }))));
+    return event;
+  };
+}
+
+export async function emitEvent(env, event, ctx) {
+  if (typeof env?.eventHandler === "function") return env.eventHandler(event, env, ctx);
+  if (event) eventLog("info", event.what, { who: event.who, where: event.where, when: event.when, ...event.details });
+  return event;
+}
 
 export function eventLog(level, event, details = {}) {
   const method = ["debug", "info", "warn", "error"].includes(level) ? level : "info";
@@ -15,10 +45,140 @@ export function auditLog({ who = "system", operation, resource, details = {} }) 
 
 export function requestActor(state = {}) {
   if (state.requestedBy) return String(state.requestedBy);
-  if (state.authUser?.id) return `user:${state.authUser.id}`;
+  const canonical = authUser(state);
+  if (canonical?.id) return `user:${canonical.id}`;
   if (state.user?.auth_strategy === "http_basic") return "user:admin";
   if (state.user?.sub) return `user:${state.user.sub}`;
   return "system:read";
+}
+
+export function authUser(value) {
+  return value?.authUser || value?.user?.authUser || value?.state?.authUser || value?.state?.user?.authUser || (value?.id && value?.provider && value?.subject ? value : null) || null;
+}
+
+export function userId(value) {
+  return authUser(value)?.id || value?.userId || value?.sub || value?.email || null;
+}
+
+export function requestIdentity(state = {}) {
+  const canonical = authUser(state);
+  return {
+    user: state.user || null,
+    authUser: canonical,
+    userId: canonical?.id || null,
+    who: requestActor(state),
+    isAuthenticated: Boolean(canonical || state.user),
+    isAdmin: Boolean(state.user?.auth_strategy === "http_basic" || canonical?.is_admin),
+  };
+}
+
+export function requestContext({ request, env, ctx, state, data } = {}) {
+  const identity = requestIdentity(state);
+  return {
+    request, env, ctx, state, data: data || state?.data,
+    ...identity,
+    event: (what, where = "application", details = {}, when = new Date()) => emitEvent(env, Event(identity.who, what, where, when, details), ctx),
+  };
+}
+
+export function sameOrigin(request, allowedOrigins = []) {
+  const origin = request?.headers?.get("Origin");
+  if (!origin) return false;
+  const requestOrigin = (() => { try { return new URL(request.url).origin; } catch { return ""; } })();
+  const allowed = new Set((Array.isArray(allowedOrigins) ? allowedOrigins : [allowedOrigins]).filter(Boolean).map(String));
+  if (!allowed.size && requestOrigin) allowed.add(requestOrigin);
+  const fetchSite = request.headers.get("Sec-Fetch-Site");
+  return allowed.has(origin) && (!fetchSite || fetchSite === "same-origin");
+}
+
+export async function readJsonClone(request, maxBytes = 64 * 1024) {
+  if (!(request.headers.get("Content-Type") || "").toLowerCase().startsWith("application/json")) return { error: secureJson({ error: "JSON request required" }, 415) };
+  const declared = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declared) && declared > maxBytes) return { error: secureJson({ error: "Request body is too large" }, 413) };
+  try {
+    const value = await request.clone().json();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Object required");
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maxBytes) return { error: secureJson({ error: "Request body is too large" }, 413) };
+    return { value };
+  } catch {
+    return { error: secureJson({ error: "Invalid JSON object request" }, 400) };
+  }
+}
+
+export async function readJson(request, maxBytes = 64 * 1024) {
+  if (!(request.headers.get("Content-Type") || "").toLowerCase().startsWith("application/json")) throw Object.assign(new Error("JSON request required"), { status: 415 });
+  const declared = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declared) && declared > maxBytes) throw Object.assign(new Error("Request body is too large"), { status: 413 });
+  if (!request.body) throw Object.assign(new Error("Request body required"), { status: 400 });
+  try {
+    const value = await request.clone().json();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Object required");
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maxBytes) throw Object.assign(new Error("Request body is too large"), { status: 413 });
+    return value;
+  } catch (error) {
+    if (error?.status) throw error;
+    throw Object.assign(new Error("Invalid JSON object request"), { status: 400 });
+  }
+}
+
+export function secureJson(payload, status = 200, headers = {}) {
+  return secureResponse(Response.json(payload, { status, headers: { "Cache-Control": "no-store", ...headers } }));
+}
+
+export function json(payload, status = 200, cache = "no-store") {
+  return secureJson(payload, status, { "Cache-Control": cache });
+}
+
+export function secureText(text, status = 200, cache = "no-store") {
+  return secureResponse(new Response(text, { status, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": cache } }));
+}
+
+export function requireUser(identity, response = secureJson({ error: "Authentication is required." }, 401)) {
+  return identity ? null : response;
+}
+
+export function requireAdmin(identity, response = secureJson({ error: "Administrator access is required." }, 403)) {
+  return identity?.is_admin || identity?.isAdmin ? null : response;
+}
+
+export async function featureCircuit(env, id, who = "system:read") {
+  return getCircuitBreaker(env, id, { who }).catch((error) => {
+    eventLog("error", "feature.circuit.read.failed", { breaker: id, errorName: error?.name || "Error", errorMessage: String(error?.message || "Unknown circuit breaker error").slice(0, 300) });
+    void env?.event?.("feature.circuit.read.failed", "feature", { breaker: id, who, errorName: error?.name || "Error" });
+    return null;
+  });
+}
+
+export async function featureAvailable(env, id, who = "system:read") {
+  return (await featureCircuit(env, id, who))?.state === "on";
+}
+
+export async function requireFeatureCircuit(env, { feature, breakerId, operation, requestId, who, message = "The requested feature is unavailable." }) {
+  const breaker = await featureCircuit(env, breakerId, who || "system:read");
+  if (breaker?.state === "on") return breaker;
+  const details = { feature, breaker: breakerId, state: breaker?.state || "missing", operation, requestId: requestId || null };
+  eventLog("warn", "feature.request.blocked", details);
+  auditLog({ who: who || "system:read", operation: "blocked", resource: `feature:${feature}`, details });
+  await env?.event?.("feature.request.blocked", "feature", { ...details, who: who || "system:read" });
+  throw Object.assign(new Error(message), { status: 503, code: "feature_circuit_unavailable", feature, breakerId, circuitState: breaker?.state || "missing" });
+}
+
+export function createAvailabilityFeature({ name = "base", breakerId = `${name}:site-available`, displayName = "Site availability", publicPaths = ["/health", "/api/health"] } = {}) {
+  return {
+    name,
+    packageName: BASE_PACKAGE_NAME,
+    version: BASE_VERSION,
+    healthcheck: async () => ({ feature: name, component: "site-available", displayName, state: "green", metadata: { endpoint: "/health", expectedStatus: 200 } }),
+    circuitBreakers: [{ id: breakerId, name: "site-available", displayName, state: "on", allowSelfHealing: false, healthchecks: [`${name}:site-available`] }],
+    async middleware(request, env, ctx, next) {
+      const pathname = new URL(request.url).pathname;
+      if (publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) return next(request);
+      const breaker = await featureCircuit(env, breakerId, "system:read");
+      if (breaker?.state === "on") return next(request);
+      await env.event?.("feature.maintenance", "availability", { feature: name, breaker: breakerId, state: breaker?.state || "missing", pathname, method: request.method });
+      return secureJson({ error: "The site is temporarily unavailable." }, 503);
+    },
+  };
 }
 
 export function createD1(env, { who = "system:read" } = {}) {
@@ -41,6 +201,34 @@ export function createD1(env, { who = "system:read" } = {}) {
       return typeof db.batch === "function" ? db.batch(statements) : Promise.all(statements.map((statement) => statement.run()));
     },
   };
+}
+
+export function auditedD1(db, who = "system:read") {
+  if (!db) return db;
+  return new Proxy(db, {
+    get(target, property) {
+      const value = target[property];
+      if (property === "prepare") return (sql) => {
+        const statement = value.call(target, sql);
+        return new Proxy(statement, {
+          get(statementTarget, statementProperty) {
+            const method = statementTarget[statementProperty];
+            if (!['run', 'first', 'all', 'raw'].includes(statementProperty) || typeof method !== "function") return typeof method === "function" ? method.bind(statementTarget) : method;
+            return async (...args) => { auditD1(who, sql); return method.apply(statementTarget, args); };
+          },
+        });
+      };
+      if (property === "batch") return (statements) => { auditD1(who, "BATCH"); return typeof value === "function" ? value.call(target, statements) : Promise.all(statements.map((statement) => statement.run())); };
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+export function auditedEnv(env, who = "system:read") {
+  if (!env?.DB) return env;
+  const result = Object.create(env);
+  result.DB = auditedD1(env.DB, who);
+  return result;
 }
 
 function auditD1(who, sql) {

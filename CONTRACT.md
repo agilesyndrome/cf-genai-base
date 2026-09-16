@@ -21,6 +21,7 @@ is optional and must use `ctx.waitUntil` for background work.
 - Base provides `/api/admin/users`, `/api/admin/scopes`, `/api/admin/groups`, `/api/admin/status`, `/api/admin/features`, `/api/admin/healthchecks`, `/api/admin/circuit-breakers`, and `/api/admin/users/:id/scopes|groups` for platform administrators when the authorization and core migrations are installed. It also provides short-lived `/api/admin/users/:id/impersonate` and `/api/admin/impersonate/clear` controls. `GET /api/tenant` returns the authenticated active tenant and validated memberships; invalid `X-Tenant-ID` values return 400. `GET /api/admin/features` returns the installed runtime feature manifests, package names and versions, per-feature health rollups, healthchecks, and circuit breakers. The browser route `/admin/features` renders that catalog. Feature manifests may provide `name`, `displayName`, `packageName`, and `version`. The exported UI includes users, scopes, groups, healthchecks, and circuit-breaker catalogs.
 - Public APIs must be explicitly listed in provider-specific auth configuration.
 - Mutating `/api/*` requests require a same-origin `Origin` header.
+- `createWorker` supplies request-scoped `data`, `user`, `authUser`, `userId`, `context`, `event`, and audited D1 access to route handlers. `Event(who, what, where, when, details)` creates normalized events; installed features may consume them through `eventHandler`.
 
 ## Environment and bindings
 
