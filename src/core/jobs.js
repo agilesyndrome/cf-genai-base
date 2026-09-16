@@ -81,6 +81,43 @@ export async function cancelJob(env, id, options = {}) {
   return updateJob(env, id, { status: "cancelled", finishedAt: new Date().toISOString() }, options);
 }
 
+export async function dispatchJob(env, definition, { workflow, params = {}, retention, who = "system:update", ctx } = {}) {
+  if (!workflow || typeof workflow.create !== "function") throw new TypeError("A Workflow binding is required to dispatch a job");
+  const job = await createJob(env, definition, { who, ctx });
+  try {
+    await workflow.create({
+      id: job.id,
+      params: { ...params, jobId: job.id },
+      ...(retention ? { retention } : {}),
+    });
+    return job;
+  } catch (error) {
+    await failJob(env, job.id, error, { who, ctx });
+    throw error;
+  }
+}
+
+export async function executeJob(env, id, execute, { who = "system:update", ctx, toJobResult = identity } = {}) {
+  if (typeof execute !== "function") throw new TypeError("Job executor must be a function");
+  const running = await startJob(env, id, { who, ctx });
+  if (!running) throw new TypeError(`Unknown job: ${id}`);
+  const report = (progress) => updateJobProgress(env, id, progress, { who, ctx });
+  try {
+    const value = await execute({ job: running, report });
+    const result = await toJobResult(value);
+    const job = await completeJob(env, id, result === undefined ? {} : result, { who, ctx });
+    return { job, value };
+  } catch (error) {
+    await failJob(env, id, error, { who, ctx });
+    throw error;
+  }
+}
+
+export async function runJob(env, definition, execute, options = {}) {
+  const job = await createJob(env, definition, options);
+  return executeJob(env, job.id, execute, options);
+}
+
 export async function updateJob(env, id, patch = {}, { who = "system:update", ctx } = {}) {
   const current = await getJob(env, id, { who });
   if (!current) return null;
@@ -145,3 +182,4 @@ function nullable(value) { return value === undefined || value === null || value
 function encode(value) { return JSON.stringify(value === undefined ? {} : value); }
 function decode(value) { if (value == null || value === "") return null; try { return JSON.parse(value); } catch { return null; } }
 function boundedLimit(value, maximum = 100) { const normalized = Number(value); return Number.isFinite(normalized) && normalized > 0 ? Math.min(Math.floor(normalized), maximum) : Math.min(50, maximum); }
+function identity(value) { return value; }

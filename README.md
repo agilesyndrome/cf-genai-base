@@ -115,15 +115,19 @@ Call `await env.event("thing.happened", "domain", details)` to emit a
 normalized event. Features may provide `eventHandler(event, { env, ctx })`;
 this is the extension point for feature integrations.
 
-Long-running features create a durable job with `createJob`, call
-`startJob`/`updateJobProgress`, and finish with `completeJob`, `failJob`, or
-`cancelJob`. Every lifecycle change is stored in `core_job_events` and emitted
+Long-running features can call `dispatchJob` with a Cloudflare Workflow binding;
+base creates the durable record first and passes its ID to the Workflow as
+`params.jobId`. Workflow code calls `executeJob`, which supplies a progress
+reporter and completes or fails the record. `runJob` is the same lifecycle for
+work already executing in the current invocation. Lower-level features may call
+`createJob`, `startJob`, `updateJobProgress`, `completeJob`, `failJob`, and
+`cancelJob` directly. Every lifecycle change is stored in `core_job_events` and emitted
 to the owning user's live event room. Configure the optional live transport by
 exporting `EventHub` from `@agilesyndrome/cf-genai-base/event-hub` and binding
 an `EVENT_HUB` Durable Object in the application Worker. The React package's
 `LiveEventsProvider`, `useJob`, `useJobs`, and `JobNotificationList` handle
-reconnects and refreshes; the feature remains responsible for its own job type,
-executor, and result UI.
+reconnects and refreshes; the feature remains responsible for its own Workflow,
+job type, executor, and result UI.
 
 The exported `Event`, `emitEvent`, `requestContext`, `userId`, `sameOrigin`,
 `readJson`, `secureJson`, `featureCircuit`, and `requireFeatureCircuit` helpers

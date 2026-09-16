@@ -11,4 +11,5 @@
 - Replace server-rendered admin HTML and custom elements with the React UI entrypoint; apps own the shell and theme around base's admin components.
 - Apply `migrations/0006_jobs.sql`; features now use generic durable job helpers and `GET /api/jobs` instead of inventing job tables and status endpoints.
 - Configure an `EVENT_HUB` Durable Object and export `EventHub` from `@agilesyndrome/cf-genai-base/event-hub` to enable authenticated live job events over WebSockets.
+- Dispatch long-running work through a Cloudflare Workflow with `dispatchJob`; execute its durable lifecycle with `executeJob` instead of relying on request-lifetime background work.
 - Remove the lowercase `admin_token` environment alias; use `ADMIN_TOKEN` only.

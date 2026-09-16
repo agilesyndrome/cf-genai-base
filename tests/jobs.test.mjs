@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { completeJob, createJob, failJob, getJob, listJobEvents, listJobs, startJob, updateJobProgress } from "../src/core/jobs.js";
+import { completeJob, createJob, dispatchJob, executeJob, failJob, getJob, listJobEvents, listJobs, runJob, startJob, updateJobProgress } from "../src/core/jobs.js";
 import { eventRooms } from "../src/core/events.js";
 import { createWorker } from "../src/index.js";
 
@@ -65,6 +65,36 @@ test("failed jobs retain safe error details and target the owning user room", as
   const failed = await failJob(env, job.id, Object.assign(new Error("provider unavailable"), { code: "upstream_unavailable" }));
   assert.deepEqual(failed.error, { name: "Error", message: "provider unavailable", code: "upstream_unavailable" });
   assert.deepEqual(eventRooms({ who: "system", details: { audience: { userId: "user-2", tenantId: "tenant-1" } } }), ["user:user-2", "tenant:tenant-1"]);
+});
+
+test("job executors report progress and can persist a compact result", async () => {
+  const db = database();
+  const env = { DB: db, eventHandler: async () => {} };
+  const execution = await runJob(env, { type: "recipe.development", ownerId: "user-4" }, async ({ report }) => {
+    await report({ phase: "generating", percent: 25 });
+    return { recipe: { slug: "weeknight-soup", body: "large generated value" } };
+  }, { toJobResult: (value) => ({ slug: value.recipe.slug }) });
+  assert.equal(execution.job.status, "succeeded");
+  assert.deepEqual(execution.job.result, { slug: "weeknight-soup" });
+  assert.equal(execution.value.recipe.body, "large generated value");
+});
+
+test("workflow dispatch uses the durable job id and records dispatch failures", async () => {
+  const db = database();
+  const env = { DB: db, eventHandler: async () => {} };
+  const calls = [];
+  const job = await dispatchJob(env, { type: "messaging.reply", ownerId: "user-5" }, {
+    workflow: { create: async (options) => calls.push(options) },
+    params: { conversationId: "conversation-1" },
+  });
+  assert.deepEqual(calls, [{ id: job.id, params: { conversationId: "conversation-1", jobId: job.id } }]);
+  const executed = await executeJob(env, job.id, async () => ({ messageId: "message-1" }));
+  assert.equal(executed.job.status, "succeeded");
+
+  await assert.rejects(() => dispatchJob(env, { type: "messaging.reply", ownerId: "user-5" }, {
+    workflow: { create: async () => { throw new Error("dispatch unavailable"); } },
+  }), /dispatch unavailable/);
+  assert.equal([...db.jobs.values()].filter((row) => row.status === "failed").length, 1);
 });
 
 test("worker exposes owner-scoped durable jobs", async () => {
