@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fold the complete `cf-genai` operational CLI into this package so Worker,
+  admin, healthcheck, circuit-breaker, D1, project, and release tooling share a
+  single version and installation.
+- Publish the `cf-genai` executable and the programmatic `/cli` entrypoint from
+  `@agilesyndrome/cf-genai-base`.
+- Make base CI validate the bundled CLI directly instead of downloading the
+  retired `@agilesyndrome/cf-genai-cli` package.
+
 ## 5.0.0
 
 - Replace `@agilesyndrome/cf-genai-base/authorization` imports with `/auth`.

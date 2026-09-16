@@ -17,4 +17,4 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx --yes @agilesyndrome/cf-genai-cli ci
+      - run: node bin/cf-genai.js ci

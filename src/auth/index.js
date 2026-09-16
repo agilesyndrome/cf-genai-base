@@ -5,3 +5,4 @@ export * from "./tenants.js";
 export * from "./groups.js";
 export * from "./subscriptions.js";
 export * from "./impersonation.js";
+export * from "./oauth-single.js";

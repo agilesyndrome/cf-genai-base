@@ -2,6 +2,10 @@
 
 Opinionated startup boilerplate for small Cloudflare Workers.
 
+The package also ships the `cf-genai` command. Runtime, administration, D1,
+project automation, and release tooling are versioned and published together;
+there is no separate CLI dependency.
+
 The base owns the shared security boundary as well as Worker lifecycle concerns. It reserves `/admin` and `/api/admin` routes, authenticates them using `AUTH_STRATEGY` (default `http_basic`, or `oauth` when an auth provider is supplied), and applies the optional `authorize` policy. Sites still own their router, HTML, D1 queries, R2 keys, and scheduled jobs.
 Use D1 bindings for durable application data and R2 bindings for binary assets;
 do not put either into module-level state.
@@ -31,6 +35,51 @@ Base protects `/admin` and `/api/admin`; the React UI package owns the browser
 pages. Import `AdminShell` and the platform catalogs from
 `@agilesyndrome/cf-genai-base/ui`. Sites provide their own application links and
 theme while the base components consume the shared JSON admin APIs.
+
+## Command-line tools
+
+Install base in a project (or globally) and use the bundled executable:
+
+```sh
+npm install @agilesyndrome/cf-genai-base
+npx cf-genai version
+
+cf-genai check
+cf-genai test
+cf-genai ci
+cf-genai dev
+cf-genai upgrade base latest
+cf-genai release --confirm
+cf-genai release-status --wait 3
+```
+
+Projects upgrading from the standalone package should remove
+`@agilesyndrome/cf-genai-cli`; their existing base dependency now supplies the
+same `cf-genai` executable.
+
+The CLI includes all commands formerly published by
+`@agilesyndrome/cf-genai-cli`: project checks and releases, scoped-data linting,
+package upgrades with migration vendoring, D1 refresh/backup/restore/migration,
+site status, and user, tenant, healthcheck, circuit-breaker, and platform admin
+operations.
+
+```sh
+cf-genai status --env staging
+cf-genai d1 refresh local
+cf-genai d1 migrate production --confirm-production
+cf-genai d1 backup production --output ./backup.sql --confirm-production
+cf-genai admin features --env staging
+cf-genai admin users --env staging
+cf-genai tenant list --env staging
+cf-genai user get someone@example.com --env staging
+cf-genai healthchecks set llm:provider red --env staging
+cf-genai circuit-breakers set llm:provider tripped --env staging
+```
+
+See [CLI.md](CLI.md) or run `cf-genai --help` for the complete command grammar. Credential loading
+stays outside the command, so a repository can continue to wrap it with
+`op run --env-file=.env.op --`. Destructive remote operations retain their
+existing explicit confirmation flags.
 
 ## Shared platform helpers
 

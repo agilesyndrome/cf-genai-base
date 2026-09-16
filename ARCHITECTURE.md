@@ -30,17 +30,20 @@ in module scope. Background work is scheduled through ctx.waitUntil.
 - src/admin/: platform admin middleware and JSON APIs.
 - src/ui/react/: React admin components, live event hooks, and durable job
   notifications. Applications own the shell and theme around these primitives.
+- src/cli/ and bin/cf-genai.js: project automation, D1 operations, and the
+  administrative command line. The CLI is released with base so its command
+  surface always matches the platform services in the same package version.
 - src/core/index.js, src/auth/index.js, and src/data/index.js: canonical
   entrypoints for the package's core, authentication, and data modules.
 - CONTRACT.md: shared site and feature contract.
 - README.md: integration examples.
-- @agilesyndrome/cf-genai-cli: shared local project and release lifecycle.
+- CLI.md: complete operational command and safety documentation.
 - .github/workflows/publish.yml: tag-driven npm Trusted Publishing.
 
 ## Build and release
 
-    npx --yes @agilesyndrome/cf-genai-cli@0.1.3 ci
-    npx --yes @agilesyndrome/cf-genai-cli@0.1.3 release
+    node bin/cf-genai.js ci
+    npx --yes @agilesyndrome/cf-genai-base release --confirm
 
 The CLI release command pushes the version tag to GitHub; the publish workflow
 verifies the package and publishes it to npm with provenance. It does not

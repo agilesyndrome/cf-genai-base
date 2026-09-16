@@ -90,8 +90,8 @@ them explicitly. Base cannot provide row-level security to
 direct D1 calls, so applications must keep raw database access out of domain
 features. The cookbook migration must add and backfill `tenant_id` on recipe
 tables, register recipes as tenant-scoped, replace direct D1 reads/writes with
-`state.data.tenant`, and add cross-tenant isolation tests. The companion
-`cf-genai-cli` should lint `cf-genai-*` working folders for direct
+`state.data.tenant`, and add cross-tenant isolation tests. The bundled
+`cf-genai` command lints `cf-genai-*` working folders for direct
 `env.DB.prepare(` usage as a follow-up enforcement check.
 Scoped write violations are returned as a generic 403 response; the detailed
 scope/resource identity is retained in the audit log only.
