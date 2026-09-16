@@ -1,6 +1,6 @@
 {
   "name": "@agilesyndrome/cf-genai-base",
-  "version": "5.0.0",
+  "version": "5.0.1",
   "type": "module",
   "bin": {
     "cf-genai": "bin/cf-genai.js"
