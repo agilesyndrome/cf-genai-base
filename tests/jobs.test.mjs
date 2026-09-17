@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { completeJob, createJob, dispatchJob, executeJob, failJob, getJob, listJobEvents, listJobs, runJob, startJob, updateJobProgress } from "../src/core/jobs.js";
-import { eventRooms } from "../src/core/events.js";
+import { eventRooms } from "../src/core/events/index.js";
+import { completeJob, createJob, dispatchJob, executeJob, failJob, getJob, listJobEvents, listJobs, runJob, startJob, updateJobProgress } from "../src/core/jobs/index.js";
 import { createWorker } from "../src/index.js";
 
 function database() {
@@ -101,7 +101,7 @@ test("worker exposes owner-scoped durable jobs", async () => {
   const db = database();
   const env = { DB: db };
   await createJob(env, { type: "recipe.development", ownerId: "user-3" });
-  const worker = createWorker({ auth: { getUser: async () => ({ sub: "subject-3", authUser: { id: "user-3", is_admin: false } }) }, fetch: async () => new Response("site") });
+  const worker = createWorker({ app: { name: "worker", features: [{ name: "auth", getUser: async () => ({ sub: "subject-3", authUser: { id: "user-3", is_admin: false } }) }] }, fetch: async () => new Response("site") });
   const response = await worker.fetch(new Request("https://example.test/api/jobs"), env, { waitUntil() {} });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).jobs.length, 1);

@@ -50,7 +50,7 @@ test("system reader is the only reader allowed to access system resources", asyn
   const db = database();
   const reader = createDataReader({ DB: db }, { resources: [{ name: "settings", table: "settings", scope: "system", columns: ["id", "value"], readableColumns: ["id"], writableColumns: ["id", "value"] }], context: { userId: "user-1", tenantId: "tenant-a", system: true } });
   assert.equal((await reader.system.list("settings"))[0].id, "recipe-1");
-  assert.match(db.calls[0].sql, /FROM "settings" LIMIT/);
+  assert.match(db.calls[0].sql, /FROM "settings" ORDER BY "id" ASC LIMIT/);
   assert.deepEqual(await reader.tenant.list("settings"), []);
 });
 
@@ -77,4 +77,15 @@ test("base enforces column capabilities even on tenant writes", async () => {
   await assert.rejects(() => reader.tenant.update("recipes", "recipe-1", { title: "Nope" }), DataScopeError);
   const scopedReader = createDataReader({ DB: db }, { resources: [resource], context: { userId: "user-1", tenantId: "tenant-a", scopes: ["recipe:publish-public"] } });
   await scopedReader.tenant.update("recipes", "recipe-1", { title: "Allowed" });
+});
+
+test("resources can require capabilities per CRUD operation", async () => {
+  const db = database();
+  const resource = { ...recipes, operationScopes: { create: "recipes:create", delete: "recipes:delete" } };
+  const unscoped = createDataReader({ DB: db }, { resources: [resource], context: { userId: "user-1", tenantId: "tenant-a", scopes: [] } });
+  await assert.rejects(() => unscoped.tenant.insert("recipes", { title: "Nope" }), DataScopeError);
+  await assert.rejects(() => unscoped.tenant.delete("recipes", "recipe-1"), DataScopeError);
+  const scoped = createDataReader({ DB: db }, { resources: [resource], context: { userId: "user-1", tenantId: "tenant-a", scopes: ["recipes:create", "recipes:delete"] } });
+  await scoped.tenant.insert("recipes", { title: "Allowed" });
+  await scoped.tenant.delete("recipes", "recipe-1");
 });

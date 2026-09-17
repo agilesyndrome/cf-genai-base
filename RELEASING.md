@@ -1,5 +1,11 @@
 # Releasing
 
+Run `npm run build` before starting a release. It performs strict TypeScript
+checking for migrated modules, compiles the hybrid source tree to `dist/`,
+runs the source tests, verifies compiled package exports, and checks the npm
+tarball. The `prepack` lifecycle rebuilds `dist/` again before publication so
+source files are never published as runtime entrypoints.
+
 Run `npx --yes @agilesyndrome/cf-genai-base release --confirm` from this directory.
 It validates a clean tree, bumps the patch version if needed, commits package
 metadata, creates `v<version>`, and pushes the branch and tag. The tag starts

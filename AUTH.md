@@ -5,16 +5,19 @@ Shared Cloudflare Worker OIDC authentication. It provides `/auth/login`,
 uses Authorization Code + PKCE, verifies RS256 ID tokens against the provider's
 JWKS, and stores only a short-lived signed session cookie in the browser.
 
-Required Worker vars/secrets are `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`,
-`OIDC_CLIENT_SECRET`, and `AUTH_SESSION_SECRET`. The discovery document supplies
-the issuer used for token validation. `OIDC_ISSUER` remains supported as a
-backward-compatible fallback and is used to construct the standard discovery
-URL. Override names with
+Required Worker vars/secrets are `OIDC_DISCOVERY_URL`, `OIDC_ISSUER`,
+`OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and `AUTH_SESSION_SECRET`. The discovery document supplies
+the provider configuration; `OIDC_ISSUER` is also required and pins the issuer
+used for token validation. `OIDC_DISCOVERY_URL` must be the exact HTTPS
+discovery document URL. Override names with
 `createAuth({ env: { issuer, clientId, clientSecret, sessionSecret } })`.
 
 ```js
 const auth = createAuth({ publicPaths: ["/", "/api/public/"] });
-export default createWorker({ features: [auth], fetch: router });
+export default createWorker({
+  app: defineApp({ name: "example", features: [auth] }),
+  fetch: router,
+});
 ```
 
 The standard cookie is host-only and `Secure`; use a distinct `cookiePrefix`
@@ -29,8 +32,17 @@ const auth = createAuth();
 `getUser` returns the normalized identity plus `authUser`,
 the `auth_users` record maintained by cf-genai-base. This keeps site code from
 reimplementing user lookups and lets base authorization reuse the hydrated row.
-The feature registers its `users` and `groups` repositories with base by
-default. Override `repositories` only when replacing the complete definitions.
+The platform `auth.users` and `auth.groups` domains own their repositories.
+Applications consume them through the request environment instead of
+registering parallel auth repository definitions.
+
+Built-in administrative domains use route capabilities so operators need not
+all be platform administrators. Assign only the required `users:read`,
+`users:manage`, `groups:read`, `groups:manage`, `tenants:read`,
+`tenants:manage`, `tenants:delete`, `operations:read`, `operations:manage`,
+`subscriptions:read`, `subscriptions:manage`, or `impersonation:start`
+capabilities. Manifest scopes marked `system` cannot be granted directly
+through the user administration API.
 
 ## Authorization
 

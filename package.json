@@ -1,25 +1,137 @@
 {
   "name": "@agilesyndrome/cf-genai-base",
-  "version": "5.0.2",
+  "version": "5.0.3",
   "type": "module",
   "bin": {
     "cf-genai": "bin/cf-genai.js"
   },
   "exports": {
-    ".": "./src/index.js",
-    "./auth": "./src/auth/index.js",
-    "./data": "./src/data/index.js",
-    "./api": "./src/api/index.js",
-    "./event-hub": "./src/core/event-hub.js",
-    "./repository": "./src/repository.js",
-    "./app": "./src/app.js",
-    "./admin": "./src/admin/index.js",
-    "./core": "./src/core/index.js",
-    "./ui": "./src/ui/index.js",
-    "./ui/react": "./src/ui/react/index.jsx",
-    "./ui/styles.css": "./src/ui/styles.css",
-    "./cli": "./src/cli/cli.js",
-    "./cli/*": "./src/cli/*.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.js",
+      "default": "./dist/auth/index.js"
+    },
+    "./data": {
+      "types": "./dist/data/index.d.ts",
+      "import": "./dist/data/index.js",
+      "default": "./dist/data/index.js"
+    },
+    "./api": {
+      "types": "./dist/api/index.d.ts",
+      "import": "./dist/api/index.js",
+      "default": "./dist/api/index.js"
+    },
+    "./event-hub": {
+      "types": "./dist/core/events/hub.d.ts",
+      "import": "./dist/core/events/hub.js",
+      "default": "./dist/core/events/hub.js"
+    },
+    "./repository": {
+      "types": "./dist/repository.d.ts",
+      "import": "./dist/repository.js",
+      "default": "./dist/repository.js"
+    },
+    "./app": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js",
+      "default": "./dist/app.js"
+    },
+    "./domain": {
+      "types": "./dist/domain/index.d.ts",
+      "import": "./dist/domain/index.js",
+      "default": "./dist/domain/index.js"
+    },
+    "./admin": {
+      "types": "./dist/admin/index.d.ts",
+      "import": "./dist/admin/index.js",
+      "default": "./dist/admin/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "default": "./dist/core/index.js"
+    },
+    "./core/circuits": {
+      "types": "./dist/core/circuits/index.d.ts",
+      "import": "./dist/core/circuits/index.js",
+      "default": "./dist/core/circuits/index.js"
+    },
+    "./core/database": {
+      "types": "./dist/core/database/index.d.ts",
+      "import": "./dist/core/database/index.js",
+      "default": "./dist/core/database/index.js"
+    },
+    "./core/events": {
+      "types": "./dist/core/events/index.d.ts",
+      "import": "./dist/core/events/index.js",
+      "default": "./dist/core/events/index.js"
+    },
+    "./core/healthchecks": {
+      "types": "./dist/core/healthchecks/index.d.ts",
+      "import": "./dist/core/healthchecks/index.js",
+      "default": "./dist/core/healthchecks/index.js"
+    },
+    "./core/jobs": {
+      "types": "./dist/core/jobs/index.d.ts",
+      "import": "./dist/core/jobs/index.js",
+      "default": "./dist/core/jobs/index.js"
+    },
+    "./core/security": {
+      "types": "./dist/core/security/index.d.ts",
+      "import": "./dist/core/security/index.js",
+      "default": "./dist/core/security/index.js"
+    },
+    "./auth/identity": {
+      "types": "./dist/auth/identity/index.d.ts",
+      "import": "./dist/auth/identity/index.js",
+      "default": "./dist/auth/identity/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js",
+      "default": "./dist/ui/index.js"
+    },
+    "./ui/ssr": {
+      "types": "./dist/ui/ssr.d.ts",
+      "import": "./dist/ui/ssr.js",
+      "default": "./dist/ui/ssr.js"
+    },
+    "./ui/react": {
+      "types": "./dist/ui/react/index.d.ts",
+      "import": "./dist/ui/react/index.js",
+      "default": "./dist/ui/react/index.js"
+    },
+    "./ui/styles.css": "./dist/ui/styles.css",
+    "./features": {
+      "types": "./dist/features/index.d.ts",
+      "import": "./dist/features/index.js",
+      "default": "./dist/features/index.js"
+    },
+    "./features/llm": {
+      "types": "./dist/features/llm/index.d.ts",
+      "import": "./dist/features/llm/index.js",
+      "default": "./dist/features/llm/index.js"
+    },
+    "./features/messaging": {
+      "types": "./dist/features/messaging/index.d.ts",
+      "import": "./dist/features/messaging/index.js",
+      "default": "./dist/features/messaging/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/cli.d.ts",
+      "import": "./dist/cli/cli.js",
+      "default": "./dist/cli/cli.js"
+    },
+    "./cli/*": {
+      "types": "./dist/cli/*.d.ts",
+      "import": "./dist/cli/*.js",
+      "default": "./dist/cli/*.js"
+    }
   },
   "description": "Cloudflare Worker lifecycle, security, administration, and operational CLI helpers.",
   "engines": {
@@ -35,11 +147,11 @@
   },
   "files": [
     "bin",
-    "src",
+    "dist",
     "migrations",
     "README.md",
     "CLI.md",
-    "changelog.md",
+    "CHANGELOG.md",
     "CONTRACT.md",
     "LICENSE"
   ],
@@ -49,8 +161,25 @@
   },
   "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme",
   "scripts": {
-    "check": "node --check bin/cf-genai.js && node --check src/index.js && node --check src/core/index.js && node --check src/core/jobs.js && node --check src/core/event-hub.js && node --check src/auth/index.js && node --check src/auth/oauth-single.js && node --check src/runtime/worker.js && node --check src/runtime/features.js && node --check src/runtime/health.js && node --check src/admin/index.js && node --check src/admin/routes.js && node --check src/data/index.js && node --check src/data/resources.js && node --check src/data/reader.js && node --check src/data/context.js && node --check src/api/index.js && node --check src/api/contracts.js && node --check src/api/client.js && node --check src/api/jobs.js && node --check src/ui/index.js && node --check src/cli/cli.js && node --check src/cli/d1.js && node --check src/cli/operations.js && node --check src/cli/project.js && node --check src/cli/status.js && node --check src/cli/tenants.js && node --check src/cli/users.js && node --check src/cli/version.js",
-    "test": "node --test tests/*.test.mjs",
-    "build": "npm run check && npm test && npm pack --dry-run"
+    "clean": "node scripts/clean-dist.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "npm run typecheck",
+    "compile": "tsc -p tsconfig.build.json",
+    "assets": "node scripts/copy-build-assets.mjs",
+    "prepack": "npm run clean && npm run compile && npm run assets",
+    "verify:build": "node scripts/verify-build.mjs",
+    "test": "node --import tsx --test tests/*.test.mjs",
+    "test:integration": "node --import tsx --test examples/todo-list/test/integration.test.mjs",
+    "build": "npm run check && npm run prepack && npm test && npm run verify:build && npm pack --dry-run --ignore-scripts --loglevel=error"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260917.1",
+    "@types/node": "^22.20.3",
+    "@types/react": "^19.3.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "hono": "^4.13.8"
   }
 }

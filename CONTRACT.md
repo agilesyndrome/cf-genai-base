@@ -4,20 +4,35 @@ Every site built from this foundation follows the same edge contract.
 
 ## API, UI, and repositories
 
-`defineRoute({ method, path, auth, scope, csrf, handler })` defines a route
-contract. Applications pass contracts through `createWorker({ apiRoutes })`;
-base enforces authentication, administrator status, same-origin mutation
-rules, and scope checks before invoking the handler. `@agilesyndrome/cf-genai-base/api`
-also exposes `apiFetch` and `apiJson` for browser clients.
+`AppDomain` owns route contracts alongside a concept's model, views, data
+resources, and repositories. Applications register domains through
+`defineApp({ domains })`; base gives every domain route to Hono and enforces
+authentication, administrator status, same-origin mutation rules, custom
+policies, and scope checks before invoking the handler. `defineRoute` remains
+the low-level contract helper used by the domain dispatcher.
 
-`createRepositories(env, definitions)` creates named application or feature
+`defineApp` snapshots and freezes its manifest arrays. TypeScript consumers
+retain the concrete domain and feature registration types, and built-in
+`defineFeature` options are selected from the feature name.
+
+The `/api` browser client returns `JsonValue | Response`: empty, `null`, or
+non-JSON success bodies preserve the original unread `Response`. Callers that
+need a narrower JSON result pass a `validateJson` type guard, which both checks
+the untrusted payload and infers the result type. `ApiError` exposes only the
+safe server message, HTTP `status`, and `X-Request-ID` as `requestId`.
+
+Core security helpers expose typed same-origin inputs, bounded JSON-object
+reading results, status-bearing request errors, and secure response helpers;
+JSON parsing remains runtime-validated and request bodies are read from clones.
+
+`createRepositories(env, definitions)` creates named application or domain
 repositories over the request-scoped data reader. Definitions may declare
 relations to other repositories. Repositories must not expose raw D1 or accept
 unvalidated table, column, or SQL fragments from callers.
 
 ## Worker entrypoint
 
-`createWorker({ fetch, features?, middleware?, auth?, authorize?, scheduled?, security? })` owns the Worker lifecycle and reserved admin boundary. Features run in declaration order and may call `next()` or return a response. A feature may also declare `{ routes: [{ match, handle }] }`; matching handlers receive `{ request, env, ctx, state, next }` and run before the site handler. The site router owns pages, APIs, D1 queries, and R2 object keys. `scheduled`
+`createWorker({ fetch, app, middleware?, authorize?, scheduled?, security? })` owns the Worker lifecycle and reserved admin boundary. An application requests built-ins with `defineApp({ name, features: [defineFeature("llm", options), defineFeature("messaging", options)] })`; base resolves only those registrations and ignores every unrequested built-in. External feature objects are registered in the same `app.features` array. Business APIs, views, data resources, and repositories are composed through `AppDomain` instances registered in `app.domains` or `feature.domains`. Duplicate and unknown features fail during Worker construction. Feature middleware runs in declaration order and may call `next()` or return a response; feature endpoints must be domains so Hono remains the only route matcher. The site router owns pages that are not supplied by a domain. `scheduled`
 is optional and must use `ctx.waitUntil` for background work.
 
 ## Routes
@@ -28,18 +43,19 @@ is optional and must use `ctx.waitUntil` for background work.
 - `/admin` and `/admin/*` are browser admin routes; `/api/admin` and `/api/admin/*` are admin API routes.
 - Admin routes use `AUTH_STRATEGY`; omitted or empty means `http_basic`. Basic auth accepts username `admin` and the value of `ADMIN_TOKEN`. Missing token means all admin routes return 401.
 - `AUTH_STRATEGY=oauth` delegates identity establishment to the configured auth provider and uses `authorize` for admin policy.
-- `scopes` registers an application scope manifest. `scopeRoutes` associates route prefixes or match functions with required scopes.
-- Base protects `/admin` and `/api/admin`; browser pages are React applications that consume the JSON admin APIs. Import `AdminShell` and the platform catalogs from `@agilesyndrome/cf-genai-base/ui` and apply the application's theme around them.
-- Base provides `/api/admin/users`, `/api/admin/scopes`, `/api/admin/groups`, `/api/admin/status`, `/api/admin/features`, `/api/admin/healthchecks`, `/api/admin/circuit-breakers`, and `/api/admin/users/:id/scopes|groups` for platform administrators when the authorization and core migrations are installed. It also provides short-lived `/api/admin/users/:id/impersonate` and `/api/admin/impersonate/clear` controls. `GET /api/tenant` returns the authenticated active tenant and validated memberships; invalid `X-Tenant-ID` values return 400. `GET /api/admin/features` returns the installed runtime feature manifests, package names and versions, per-feature health rollups, healthchecks, and circuit breakers. React platform components consume these JSON APIs. Feature manifests may provide `name`, `displayName`, `packageName`, and `version`.
+- Domain route `scopes` register the application scope manifest and enforce access at the exact Hono route. Use `scopeMode: "any"` when any declared scope is sufficient; the default requires all declared scopes.
+- Base protects `/admin` and `/api/admin`; browser pages are React applications that consume the JSON admin APIs. `AdminDashboard` is the complete single-route administration UI; it includes all platform catalogs and owns internal list/detail navigation. `AdminShell` and the individual components remain available for custom routed interfaces.
+- Base provides list/detail APIs for users, groups, tenants, features, healthchecks, and circuit breakers, plus relationship replacement for user scopes, groups, and tenants. Built-in admin domains declare delegated `users:*`, `groups:*`, `tenants:*`, `operations:*`, `subscriptions:*`, and `impersonation:start` capabilities; platform administrators satisfy all route capabilities. It also provides short-lived impersonation controls. `GET /api/tenant` returns the authenticated active tenant and validated memberships; invalid `X-Tenant-ID` values return 400. React platform components consume these JSON APIs.
 - Public APIs must be explicitly listed in provider-specific auth configuration.
 - Mutating `/api/*` requests require a same-origin `Origin` header.
 - `createWorker` supplies request-scoped `data`, `user`, `authUser`, `userId`, `context`, `event`, and audited D1 access to route handlers. `Event(who, what, where, when, details)` creates normalized events; installed features may consume them through `eventHandler`.
-- `migrations/0006_jobs.sql` adds generic durable jobs and job events. Features create and update jobs with the exported lifecycle helpers; `GET /api/jobs`, `GET /api/jobs/:id`, and `GET /api/jobs/:id/events` expose only the authenticated owner's records. `GET /api/events` is an optional authenticated WebSocket stream backed by the configured `EVENT_HUB` Durable Object.
+- `migrations/0006_jobs.sql` adds generic durable jobs and job events. Features create and update jobs with the exported lifecycle helpers; `GET /api/jobs`, `GET /api/jobs/:id`, and `GET /api/jobs/:id/events` expose only the authenticated owner's records, while `POST /api/jobs/:id/cancel` cancels an owned queued/running job. Administrators may request `GET /api/jobs?all=true`. `GET /api/events` is an optional authenticated WebSocket stream backed by the configured `EVENT_HUB` Durable Object.
 
 ## Environment and bindings
 
 Required OIDC secrets for the standard auth plugin:
 
+- `OIDC_DISCOVERY_URL`
 - `OIDC_ISSUER`
 - `OIDC_CLIENT_ID`
 - `OIDC_CLIENT_SECRET`
@@ -56,7 +72,8 @@ Build metadata is optional: `BUILD_SHA` and `BUILD_NUMBER`.
 The package includes ordered migrations. Each site must apply
 `migrations/0001_authorization.sql` before enabling the generic user/scope APIs,
 `migrations/0004_tenants.sql` for tenant membership and subscriptions, and
-`migrations/0006_jobs.sql` before creating or reading durable jobs.
+`migrations/0006_jobs.sql` before creating or reading durable jobs. Apps that
+request messaging also apply `migrations/0007_messaging.sql`.
 The tenant migration seeds the `Easley Family` tenant and `VIP` subscription,
 and migrates existing authorization users into that tenant.
 
@@ -72,8 +89,8 @@ must remain in the application router rather than in the shared auth package.
 
 ## Scoped data contract
 
-`createWorker` accepts `dataResources`, and features may expose the same
-manifest through `feature.dataResources`. Each resource must declare a safe
+Domains expose persistence manifests through `domain.dataResources` and
+`domain.repositories`; apps and features register those domains. Each resource must declare a safe
 name, table, explicit columns, and one scope: `user`, `tenant`, `public`, or
 `system`. Public resources are read-only and predicate on the worker's
 `publicTenantId`, including for authenticated users.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorker } from "../src/index.js";
-import { DEFAULT_TENANT_ID, createImpersonationToken, ensureSubscriptionManifest, ensureUser, listAuthorizationUsers, normalizeScopes, verifyImpersonationToken } from "../src/auth/index.js";
+import { DEFAULT_TENANT_ID, createImpersonationToken, deleteTenant, ensureSubscriptionManifest, ensureUser, listAuthorizationUsers, normalizeScopes, replaceUserAccess, replaceUserGrants, verifyImpersonationToken } from "../src/auth/index.js";
 import { requestDataContext } from "../src/data/index.js";
 import fs from "node:fs/promises";
 
@@ -53,11 +53,12 @@ test("existing authorization users are not rewritten when identity fields are un
 
 test("authorization user listing loads related data with a fixed query count", async () => {
   const calls = [];
-  const db = { prepare(sql) { return { async all() { calls.push(sql); if (sql.includes("FROM auth_users")) return { results: [{ id: "user-1", email: "one@example.test" }, { id: "user-2", email: "two@example.test" }] }; if (sql.includes("auth_user_scopes")) return { results: [{ user_id: "user-1", scope_name: "items:read" }] }; return { results: [{ user_id: "user-1", id: "tenant-1", name: "One" }] }; } }; } };
+  const db = { prepare(sql) { return { async all() { calls.push(sql); if (sql.includes("FROM auth_users")) return { results: [{ id: "user-1", email: "one@example.test" }, { id: "user-2", email: "two@example.test" }] }; if (sql.includes("auth_user_scopes")) return { results: [{ user_id: "user-1", scope_name: "items:read" }] }; if (sql.includes("auth_user_groups")) return { results: [{ user_id: "user-1", group_name: "authors" }] }; return { results: [{ user_id: "user-1", id: "tenant-1", name: "One" }] }; } }; } };
   const users = await listAuthorizationUsers({ DB: db });
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.deepEqual(users[0].scopes, ["items:read"]);
   assert.deepEqual(users[0].tenants, [{ id: "tenant-1", name: "One" }]);
+  assert.deepEqual(users[0].groups, [{ group_name: "authors" }]);
   assert.deepEqual(users[1].scopes, []);
 });
 
@@ -67,7 +68,7 @@ test("subscription manifests are written once per binding and manifest", async (
   const manifest = [{ id: "pro", name: "Pro", entitlements: { "jobs:run": true } }];
   await ensureSubscriptionManifest({ DB: db }, manifest);
   await ensureSubscriptionManifest({ DB: db }, manifest);
-  assert.equal(writes, 2);
+  assert.equal(writes, 3);
 });
 
 test("base leaves public routes public and protects admin routes by default", async () => {
@@ -88,8 +89,15 @@ test("admin mutations require a same-origin Origin header", async () => {
 });
 
 test("feature routes are composed before the site handler", async () => {
+  const { AppDomain } = await import("../src/domain/index.js");
+  class FeatureDomain extends AppDomain {
+    constructor() {
+      super({ name: "example.plugin", basePath: "/plugin" });
+      this.route({ method: "GET", handler: () => new Response("feature") });
+    }
+  }
   const worker = createWorker({
-    features: [{ name: "example", routes: [{ path: "/plugin", handle: () => new Response("feature") }] }],
+    app: { name: "worker", features: [{ name: "example", domains: [new FeatureDomain()] }] },
     fetch: async () => new Response("site"),
   });
   assert.equal(await (await worker.fetch(new Request("https://example.test/plugin"), {}, ctx)).text(), "feature");
@@ -106,6 +114,41 @@ test("valid Basic credentials produce the platform admin principal", async () =>
 
 test("scope manifests normalize only capability-shaped names", () => {
   assert.deepEqual(normalizeScopes([{ name: "recipe:author", label: "Recipe author" }, { name: "not valid" }]), [{ name: "recipe:author", label: "Recipe author", description: "", system: false }]);
+});
+
+test("grant replacement rejects unknown and protected system scopes", async () => {
+  const db = { prepare(sql) { return { bind() { return this; }, async all() { return { results: sql.includes("auth_scopes") ? [{ name: "items:read", system: 0 }, { name: "system:root", system: 1 }] : [] }; } }; } };
+  await assert.rejects(() => replaceUserGrants({ DB: db }, "user-1", ["missing:scope"], null), /Unknown scopes/);
+  await assert.rejects(() => replaceUserGrants({ DB: db }, "user-1", ["system:root"], null), /System scopes/);
+});
+
+test("complete user access replacement validates first and writes one batch", async () => {
+  let batch = [];
+  const db = {
+    prepare(sql) {
+      return {
+        sql,
+        args: [],
+        bind(...args) { this.args = args; return this; },
+        async first() { return { id: "user-1" }; },
+        async all() {
+          if (sql.includes("auth_groups")) return { results: [{ id: "authors" }] };
+          if (sql.includes("auth_tenants")) return { results: [{ id: "tenant-1" }] };
+          return { results: [{ name: "items:read", system: 0 }] };
+        },
+      };
+    },
+    async batch(statements) { batch = statements; },
+  };
+  await replaceUserAccess({ DB: db }, "user-1", { groups: ["authors"], tenants: ["tenant-1"], scopes: ["items:read"] }, "admin-1");
+  assert.equal(batch.length, 6);
+  assert.equal(batch.filter((statement) => statement.sql.startsWith("DELETE")).length, 3);
+});
+
+test("tenant deletion protects the default tenant and non-empty tenants", async () => {
+  await assert.rejects(() => deleteTenant({ DB: {} }, DEFAULT_TENANT_ID), /default tenant/);
+  const db = { prepare(sql) { return { bind() { return this; }, async first() { return sql.includes("SELECT id FROM auth_tenants") ? { id: "tenant-1" } : { users: 1, subscriptions: 0 }; } }; } };
+  await assert.rejects(() => deleteTenant({ DB: db }, "tenant-1"), /must have no users or subscriptions/);
 });
 
 test("feature catalog normalizes package metadata and rolls up health severity", async () => {
@@ -151,7 +194,7 @@ test("admin feature API exposes installed runtime modules", async () => {
       return statement;
     }
   };
-  const worker = createWorker({ features: [{ name: "auth", packageName: "auth-package", version: "2.0.0" }], fetch: async () => new Response("site") });
+  const worker = createWorker({ app: { name: "worker", features: [{ name: "auth", packageName: "auth-package", version: "2.0.0" }] }, fetch: async () => new Response("site") });
   const request = new Request("https://example.test/api/admin/features", { headers: { Authorization: "Basic " + btoa("admin:secret") } });
   const response = await worker.fetch(request, { ADMIN_TOKEN: "secret", DB: db }, ctx);
   assert.equal(response.status, 200);
@@ -170,7 +213,7 @@ test("admin feature routes remain API-first", async () => {
       return statement;
     }
   };
-  const worker = createWorker({ features: [{ name: "llm", displayName: "Language models", packageName: "llm-package", version: "3.0.0" }], fetch: async () => new Response("site") });
+  const worker = createWorker({ app: { name: "worker", features: [{ name: "llm", displayName: "Language models", packageName: "llm-package", version: "3.0.0" }] }, fetch: async () => new Response("site") });
   const request = new Request("https://example.test/admin/features", { headers: { Authorization: "Basic " + btoa("admin:secret") } });
   const response = await worker.fetch(request, { ADMIN_TOKEN: "secret", DB: db }, ctx);
   assert.equal(response.status, 200);

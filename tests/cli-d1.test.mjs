@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clearSql, parseJsonRows, stripInternalRows, targetArgs } from "../src/cli/d1.js";
-import { main } from "../src/cli/cli.js";
+import { main, parseOptions } from "../src/cli/cli.js";
 import { baseDependencyVersion, dataAccessLint, devCommand, isNpmAuthenticationFailure, normalizeReleaseVersion, releaseStatusDot, releaseStatusShouldContinue, releaseWaitMinutes, requestedReleaseAction, upgradePackageName, vendorPackageMigrations } from "../src/cli/project.js";
 
 test("dev command loads .env.dev through 1Password", () => {
@@ -70,6 +70,22 @@ test("target args select local or named remote environments", () => {
   assert.deepEqual(targetArgs("local", { stagingEnv: "staging" }), ["--local"]);
   assert.deepEqual(targetArgs("staging", { stagingEnv: "staging" }), ["--remote", "--env", "staging"]);
   assert.deepEqual(targetArgs("production", { productionEnv: "" }), ["--remote"]);
+});
+
+test("CLI options preserve environment defaults, overrides, flags, and quoted Wrangler commands", () => {
+  const defaults = parseOptions([], { CF_GENAI_DATABASE: "SITE_DB", CF_GENAI_TARGET: "staging" });
+  assert.equal(defaults.database, "SITE_DB");
+  assert.equal(defaults.productionDatabase, "SITE_DB");
+  assert.equal(defaults.target, "staging");
+  const parsed = parseOptions(["d1", "backup", "local", "--database", "LOCAL_DB", "--production-database=PROD_DB", "--wrangler", "node 'wrangler cli.js'", "--json", "--yes"], {});
+  assert.deepEqual(parsed.positional, ["d1", "backup", "local"]);
+  assert.equal(parsed.database, "LOCAL_DB");
+  assert.equal(parsed.productionDatabase, "PROD_DB");
+  assert.deepEqual(parsed.wranglerCommand, ["node", "wrangler cli.js"]);
+  assert.equal(parsed.json, true);
+  assert.equal(parsed.yes, true);
+  assert.throws(() => parseOptions(["--unknown", "value"], {}), /Unknown option/);
+  assert.throws(() => parseOptions(["--database"], {}), /Missing value/);
 });
 
 test("clear SQL safely quotes discovered tables", () => {
@@ -156,11 +172,11 @@ test("prepared release versions can be tagged without a fake downgrade commit", 
   assert.throws(() => requestedReleaseAction("5.0.0", "4.1.0"), /must not be older/);
 });
 
-test("upgrade aliases cover the published first-party feature packages", () => {
+test("upgrade accepts only published package names", () => {
   assert.equal(upgradePackageName("base"), "@agilesyndrome/cf-genai-base");
   assert.equal(upgradePackageName("auth"), "@agilesyndrome/cf-genai-auth");
-  assert.equal(upgradePackageName("llm"), "@agilesyndrome/cf-genai-llm");
-  assert.equal(upgradePackageName("messaging"), "@agilesyndrome/cf-genai-messaging");
+  assert.throws(() => upgradePackageName("llm"), /Unknown cf-genai package/);
+  assert.throws(() => upgradePackageName("messaging"), /Unknown cf-genai package/);
   assert.throws(() => upgradePackageName("posthog"), /Unknown cf-genai package/);
 });
 

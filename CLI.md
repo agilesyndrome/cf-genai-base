@@ -5,10 +5,6 @@ provides safe operational commands for Cloudflare Worker repositories using
 Wrangler and D1. The refresh command surface contains only local and staging
 targets.
 
-Projects that previously installed `@agilesyndrome/cf-genai-cli` should remove
-that dependency. Installing `@agilesyndrome/cf-genai-base` now installs the
-same `cf-genai` executable.
-
 Automation can import the command runner from
 `@agilesyndrome/cf-genai-base/cli`. The migrated helper modules remain
 available through subpaths such as `@agilesyndrome/cf-genai-base/cli/d1` and
@@ -25,8 +21,6 @@ cf-genai ci
 cf-genai dev
 cf-genai upgrade base latest
 cf-genai upgrade auth latest
-cf-genai upgrade llm 5.0.0
-cf-genai upgrade messaging latest
 cf-genai release --confirm
 cf-genai release --first --confirm
 cf-genai release --add-trust --confirm
@@ -87,17 +81,17 @@ clean checkout on `main`, fetches and compares `origin/main`, pushes and
 verifies the release commit before creating the tag, and only then pushes the
 tag that triggers npm publishing. The release tag publishes the package through GitHub Actions with provenance. `config check` runs a Wrangler deploy dry-run. Production refresh remains intentionally unavailable; backups and restores are available with explicit file paths.
 
-`upgrade PACKAGE VERSION` upgrades the first-party `base`, `auth`, `llm`, or
-`messaging` package with npm and vendors package migrations not already represented in the repository's
+`upgrade PACKAGE VERSION` upgrades the first-party `base` or `auth` package
+with npm and vendors package migrations not already represented in the repository's
 `migrations/` directory. The generated files are ordinary committed Wrangler
 migrations, so the same schema change is applied consistently to local,
 staging, and production D1 databases. Review and commit the package files,
 `package.json`, `package-lock.json`, and generated migrations together.
 Operational status can be read directly from the current site directory through Wrangler (no CLI login prompt):
-  cf-genai healthcheck:list --env local
-  cf-genai healthcheck:list --env staging
-  cf-genai circuit-breaker:list --env prod
-  cf-genai circuit-breaker:set llm:openai-models on --env staging
+  cf-genai healthchecks list --env local
+  cf-genai healthchecks list --env staging
+  cf-genai circuit-breakers list --env production
+  cf-genai circuit-breakers set llm:openai-models on --env staging
 The standardized admin surface mirrors cf-genai-base and uses Wrangler authentication from the current machine:
   cf-genai admin status --env staging
   cf-genai admin features --env staging

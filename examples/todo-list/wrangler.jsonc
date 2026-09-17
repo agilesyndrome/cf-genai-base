@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cf-genai-todo-list",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-17",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "cf-genai-todo-list", "database_id": "replace-with-d1-id", "migrations_dir": "../../migrations" }
+  ],
+  "vars": { "AUTH_STRATEGY": "http_basic", "TODO_PUBLIC": "true" }
+}

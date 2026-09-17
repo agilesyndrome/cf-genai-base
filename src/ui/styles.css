@@ -17,6 +17,11 @@
 .cf-ui-admin-title, .cf-ui-nav-label { margin: 0 0 .5rem; font-weight: 700; }
 .cf-ui-nav-label { color: var(--cf-ui-muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 .cf-ui-admin-content { min-width: 0; padding: 2rem 1rem; }
+.cf-ui-admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; margin-top: 1rem; }
+.cf-ui-admin-grid a { display: grid; gap: .2rem; padding: 1rem; border: 1px solid var(--cf-ui-border); border-radius: .6rem; color: inherit; text-decoration: none; }
+.cf-ui-admin-grid a:hover { border-color: var(--cf-ui-primary); color: var(--cf-ui-primary); }
+.cf-ui-admin-grid span { color: var(--cf-ui-muted); font-size: .9rem; }
+.cf-ui-back { margin: 0 0 1rem; padding: .45rem .65rem; border: 1px solid var(--cf-ui-border); border-radius: .4rem; background: var(--cf-ui-bg); color: inherit; cursor: pointer; }
 .cf-ui-card { padding: 1rem; border: 1px solid var(--cf-ui-border); border-radius: .65rem; background: var(--cf-ui-bg); }
 .cf-ui-card + .cf-ui-card { margin-top: 1rem; }
 .cf-ui-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
