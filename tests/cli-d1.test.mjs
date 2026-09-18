@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clearSql, parseJsonRows, stripInternalRows, targetArgs } from "../src/cli/d1.js";
 import { main, parseOptions } from "../src/cli/cli.js";
-import { baseDependencyVersion, dataAccessLint, devCommand, isNpmAuthenticationFailure, isPreparedReleaseVersion, normalizeReleaseVersion, releaseStatusDot, releaseStatusShouldContinue, releaseWaitMinutes, requestedReleaseAction, upgradePackageName, vendorPackageMigrations } from "../src/cli/project.js";
+import { baseDependencyVersion, dataAccessLint, devCommand, isNpmAuthenticationFailure, isPreparedReleaseVersion, normalizeReleaseVersion, preReleaseAction, releaseStatusDot, releaseStatusShouldContinue, releaseWaitMinutes, requestedReleaseAction, upgradePackageName, vendorPackageMigrations } from "../src/cli/project.js";
 
 test("dev command loads .env.dev through 1Password", () => {
   assert.deepEqual(devCommand({ hasScript: true, args: ["--", "--host", "127.0.0.1"] }), [
@@ -170,6 +170,12 @@ test("prepared release versions can be tagged without a fake downgrade commit", 
   assert.deepEqual(requestedReleaseAction("5.0.0", "5.0.0"), { version: "5.0.0", bump: false });
   assert.deepEqual(requestedReleaseAction("4.1.6", "5.0.0"), { version: "5.0.0", bump: true });
   assert.throws(() => requestedReleaseAction("5.0.0", "4.1.0"), /must not be older/);
+});
+
+test("prerelease releases reuse the current pre version and otherwise bump once", () => {
+  assert.deepEqual(preReleaseAction("5.0.3", false), { version: "5.0.4-pre", bump: true });
+  assert.deepEqual(preReleaseAction("5.0.3", true), { version: "5.0.3-pre", bump: false });
+  assert.deepEqual(preReleaseAction("5.0.4-pre", true), { version: "5.0.4-pre", bump: false });
 });
 
 test("a prepared unpublished version can be advanced by a normal release", () => {

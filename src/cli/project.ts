@@ -248,6 +248,17 @@ export function requestedReleaseAction(currentVersion: string, requestedVersion:
   return { version: requestedVersion, bump: comparison > 0 };
 }
 
+export interface PreReleaseAction { version: string; bump: boolean }
+
+/** Select the reusable prerelease version for a release. */
+export function preReleaseAction(currentVersion: string, prePublished: boolean): PreReleaseAction {
+  if (/-pre$/.test(currentVersion)) return { version: currentVersion, bump: false };
+  if (prePublished) return { version: `${currentVersion}-pre`, bump: false };
+  const match = currentVersion.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) throw new Error(`Cannot create a prerelease from ${currentVersion}.`);
+  return { version: `${Number(match[1])}.${Number(match[2])}.${Number(match[3]) + 1}-pre`, bump: true };
+}
+
 function requestedReleaseVersion(args: readonly string[] = []): string | null {
   const index = args.findIndex((arg) => arg === "--version" || arg.startsWith("--version="));
   if (index < 0) return null;
@@ -515,7 +526,10 @@ function addTrust(args: readonly string[]): SpawnSyncReturns<string> {
 function release(args: readonly string[]): SpawnSyncReturns<string> | undefined {
   const dryRun = args.includes("--dry-run");
   const bypassLint = args.includes("--bypass-lint");
+  const pre = args.includes("--pre");
   const requestedVersion = requestedReleaseVersion(args);
+  if (pre && requestedVersion) throw new Error("Use either --pre or --version, not both.");
+  if (pre && args.includes("--type")) throw new Error("Use either --pre or --type, not both.");
   if (requestedVersion && args.includes("--type")) throw new Error("Use either --version or --type, not both.");
   if (!dryRun) assertFlag(args, "--confirm", "A release requires explicit human confirmation because it creates a commit, tag, and npm publish trigger.");
   assertClean();
@@ -523,6 +537,22 @@ function release(args: readonly string[]): SpawnSyncReturns<string> | undefined 
   assertMainIsSynchronized();
   const name = packageName();
   let currentVersion = version();
+  if (pre) {
+    const existingPre = /-pre$/.test(currentVersion)
+      ? true
+      : npmVersionState(name, `${currentVersion}-pre`).exists;
+    const action = preReleaseAction(currentVersion, existingPre);
+    if (dryRun) {
+      console.log(`Dry run: ${name}@${currentVersion} would release as ${action.version}. Main is synchronized and no changes were made.`);
+      return;
+    }
+    if (currentVersion !== action.version) {
+      const bumped = run("npm", ["version", action.version, "--no-git-tag-version"]);
+      if (bumped.status !== 0) return bumped;
+      currentVersion = version();
+    }
+    return finishRelease(name, currentVersion, true);
+  }
   if (requestedVersion) {
     const action = requestedReleaseAction(currentVersion, requestedVersion);
     const published = npmVersionState(name, requestedVersion);
@@ -559,6 +589,10 @@ function release(args: readonly string[]): SpawnSyncReturns<string> | undefined 
     if (bumped.status !== 0) return bumped;
     currentVersion = version();
   }
+  return finishRelease(name, currentVersion, false);
+}
+
+function finishRelease(name: string, currentVersion: string, pre: boolean): SpawnSyncReturns<string> | undefined {
   const staged = run("git", ["add", "package.json", "package-lock.json"]);
   if (staged.status !== 0) return staged;
   const stagedChanges = spawnSync("git", ["diff", "--cached", "--quiet"], { stdio: "ignore" });
@@ -571,9 +605,10 @@ function release(args: readonly string[]): SpawnSyncReturns<string> | undefined 
   const localHead = output("git", ["rev-parse", "HEAD"]);
   const remoteHead = output("git", ["ls-remote", "origin", "refs/heads/main"]).split(/\s+/)[0];
   if (localHead !== remoteHead) throw new Error("origin/main could not be verified at the release commit; tag was not created.");
-  const tagged = run("git", ["tag", `v${currentVersion}`]);
+  const tag = `v${currentVersion}`;
+  const tagged = run("git", pre ? ["tag", "-f", tag] : ["tag", tag]);
   if (tagged.status !== 0) return tagged;
-  return run("git", ["push", "origin", `refs/tags/v${currentVersion}`]);
+  return run("git", pre ? ["push", "--force", "origin", `refs/tags/${tag}`] : ["push", "origin", `refs/tags/${tag}`]);
 }
 
 interface ReleaseChecks {

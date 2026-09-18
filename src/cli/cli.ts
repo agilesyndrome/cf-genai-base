@@ -12,7 +12,7 @@ export const usage = `Usage:
   cf-genai lint data-access
   cf-genai dev [options]
   cf-genai upgrade <base|auth> <latest|VERSION>
-  cf-genai release [--confirm] [--first] [--add-trust] [--dry-run] [--bypass-lint] [--type patch|minor|major] [--version MAJOR.MINOR]
+  cf-genai release [--confirm] [--first] [--add-trust] [--pre] [--dry-run] [--bypass-lint] [--type patch|minor|major] [--version MAJOR.MINOR]
   cf-genai release-status [--wait MINUTES] [--json]
     cf-genai status [--env local|staging|production] [--json]
   cf-genai version
@@ -36,6 +36,7 @@ Options:
   --confirm-production        Explicitly permit production migration or breaker changes
   --confirm                    Confirm a destructive or release operation
   --dry-run                    Show release checks without changing Git or npm
+  --pre                        Publish or refresh the current patch prerelease as <version>-pre
   --version MAJOR.MINOR        Explicit release target; patch is assigned as .0
   --bypass-lint                Skip the release preflight lint (use sparingly)
   --json                      Return machine-readable output

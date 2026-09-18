@@ -25,6 +25,7 @@ cf-genai release --confirm
 cf-genai release --first --confirm
 cf-genai release --add-trust --confirm
 cf-genai release --dry-run
+cf-genai release --pre --confirm
 cf-genai release --version 4.1 --confirm
 cf-genai release-status
 cf-genai release-status --wait 3 --json
@@ -112,4 +113,4 @@ The standardized admin surface mirrors cf-genai-base and uses Wrangler authentic
 Back up and restore a complete D1 database with explicit files:
   cf-genai d1 backup production --output ./backup.sql --confirm-production
   cf-genai d1 restore staging --file ./backup.sql --yes
-`release` creates the version commit and tag; the tag-triggered workflow publishes to npm. `release-status` verifies a clean, pushed workspace, the remote release tag, successful GitHub Actions runs for that tag, npm publication, and whether the declared `cf-genai-base` version is current. An older base version is shown in yellow with an upgrade command. `--wait` is one total timeout in minutes shared by GitHub Actions and npm polling; the default is five minutes. Use `release --version MAJOR.MINOR` to explicitly jump to a version such as `5.0`; the CLI assigns patch `0`, accepts an equal prepared manifest version when its tag and npm version do not exist, rejects older versions, and refuses any version already present on npm or GitHub. This is useful for synchronizing packages onto a common release line.
+`release` creates the version commit and tag; the tag-triggered workflow publishes to npm. Use `release --pre --confirm` for a reusable prerelease build: it reuses `<currentVersion>-pre` when that version exists on npm, otherwise it bumps the patch once and creates `<bumpedVersion>-pre`. Repeated prerelease runs reuse the same version and force-update its release tag. `release-status` verifies a clean, pushed workspace, the remote release tag, successful GitHub Actions runs for that tag, npm publication, and whether the declared `cf-genai-base` version is current. An older base version is shown in yellow with an upgrade command. `--wait` is one total timeout in minutes shared by GitHub Actions and npm polling; the default is five minutes. Use `release --version MAJOR.MINOR` to explicitly jump to a version such as `5.0`; the CLI assigns patch `0`, accepts an equal prepared manifest version when its tag and npm version do not exist, rejects older versions, and refuses any version already present on npm or GitHub. This is useful for synchronizing packages onto a common release line.
