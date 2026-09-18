@@ -202,6 +202,21 @@ function npmVersion(name: string, currentVersion: string): string {
   return result.status === 0 ? result.stdout.trim() : "";
 }
 
+function npmLatestVersion(name: string): string | null {
+  const result = run("npm", ["view", name, "version", "--json", "--registry", npmRegistry], { inherit: false, failOnError: false });
+  if (result.status !== 0) {
+    if (/E404|not found/i.test(`${result.stdout}\n${result.stderr}`)) return null;
+    throw new Error(`Unable to verify the latest published version of ${name}.`);
+  }
+  let published: unknown = result.stdout.trim();
+  try { published = JSON.parse(result.stdout.trim()); } catch { /* npm may return an unquoted version */ }
+  return typeof published === "string" && published ? published : null;
+}
+
+export function isPreparedReleaseVersion(currentVersion: string, latestPublishedVersion: string | null, currentTagExists: boolean): boolean {
+  return !currentTagExists && latestPublishedVersion !== null && compareVersions(currentVersion, latestPublishedVersion) > 0;
+}
+
 function npmVersionState(name: string, requestedVersion: string): { exists: boolean; version: string | null } {
   const result = run("npm", ["view", `${name}@${requestedVersion}`, "version", "--json", "--registry", npmRegistry], { inherit: false, failOnError: false });
   if (result.status === 0) {
@@ -530,10 +545,11 @@ function release(args: readonly string[]): SpawnSyncReturns<string> | undefined 
   if (!requestedVersion && currentTagExists && !currentPublished) {
     throw new Error(`${name}@${currentVersion} has a release tag but is not published. Repair the failed publish or run release-status before creating another release.`);
   }
-  if (!requestedVersion && !currentPublished && !currentTagExists) {
+  const prepared = !requestedVersion && !currentPublished && isPreparedReleaseVersion(currentVersion, npmLatestVersion(name), currentTagExists);
+  if (!requestedVersion && !currentPublished && !currentTagExists && !prepared) {
     throw new Error(`${name} is not published yet. Run cf-genai release --first --confirm to bootstrap the npm package before creating a release tag.`);
   }
-  const consumed = requestedVersion ? false : Boolean(currentPublished || currentTagExists);
+  const consumed = requestedVersion ? false : Boolean(currentPublished || currentTagExists || prepared);
   if (dryRun) {
     console.log(`Dry run: ${name}@${currentVersion}${consumed ? ` would bump ${type}` : " is ready to release"}. Main is synchronized and no changes were made.`);
     return;
