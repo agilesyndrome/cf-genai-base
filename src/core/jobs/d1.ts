@@ -73,6 +73,8 @@ export async function listJobEventRows(
 }
 
 export async function updateJobRow(env: unknown, id: unknown, current: Job, patch: JobPatch, options: JobOptions = {}): Promise<Job | null> {
+  if (["succeeded", "failed", "cancelled"].includes(current.status)) return current;
+  if (patch.status === undefined && current.status !== "running") return current;
   const nextStatus = patch.status === undefined ? current.status : normalizeJobStatus(patch.status);
   const fields: Array<[string, unknown]> = [
     ["status", nextStatus],
@@ -94,12 +96,23 @@ export async function updateJobRow(env: unknown, id: unknown, current: Job, patc
     }
   }
   assignments.push("updated_at = ?");
-  values.push(new Date().toISOString(), String(id));
-  await createD1(env, { who: options.who ?? "system:update" })
-    .prepare(`UPDATE core_jobs SET ${assignments.join(", ")} WHERE id = ?`)
-    .bind(...values)
+  values.push(new Date().toISOString(), String(id), current.status);
+  const result = await createD1(env, { who: options.who ?? "system:update" })
+    .prepare(`UPDATE core_jobs SET ${assignments.join(", ")} WHERE status IN (?) AND id = ?`)
+    .bind(...values.slice(0, -2), current.status, String(id))
     .run();
-  return getJobRow(env, id, options);
+  return result.meta?.changes === 0 ? null : getJobRow(env, id, options);
+}
+
+/** Atomically claims queued work. Only the claimant may transition it to running. */
+export async function claimJobRow(env: unknown, id: unknown, options: JobOptions = {}): Promise<Job | null> {
+  const startedAt = new Date().toISOString();
+  const result = await createD1(env, { who: options.who ?? "system:update" })
+    .prepare(`UPDATE core_jobs SET status='running', started_at=?, updated_at=? WHERE id=? AND status='queued'`)
+    .bind(startedAt, startedAt, String(id))
+    .run();
+  const changes = result.meta?.changes;
+  return changes === 0 ? null : getJobRow(env, id, options);
 }
 
 export async function insertJobEventRow(env: unknown, event: { id: string; jobId: string; type: string; payload: unknown }, options: JobOptions = {}): Promise<void> {

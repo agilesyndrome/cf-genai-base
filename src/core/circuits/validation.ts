@@ -42,4 +42,3 @@ export function circuitBreakerState(value: unknown): NormalizedCircuitBreaker["s
   }
   return state as NormalizedCircuitBreaker["state"];
 }
-

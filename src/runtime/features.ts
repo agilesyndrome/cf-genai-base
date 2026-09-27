@@ -40,3 +40,14 @@ export function ensureFeatureManifests(
   return promise;
 }
 
+/** Run live health measurements without reusing the warm-isolate registration promise. */
+export async function refreshFeatureManifests(
+  env: RuntimeBindings,
+  features: readonly FeatureManifest[] = [],
+  { who = "system:update" }: FeatureManifestOptions = {},
+): Promise<void> {
+  if (!env?.DB) return;
+  await registerFeatureManifests(env, features, { who });
+  const breakers = await listCircuitBreakers(env, { who });
+  await Promise.all(breakers.map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who })));
+}

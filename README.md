@@ -14,8 +14,13 @@ The Worker transport is built on [Hono](https://hono.dev/): middleware ordering,
 HTTP method/path matching, and admin/API dispatch all use Hono's runtime. Existing
 feature middleware keeps the package's compatibility signature while new integrations
 can use Hono middleware directly. For Worker-rendered documents, import
-`createSsrRenderer` from `@agilesyndrome/cf-genai-base/ui/ssr`; the interactive admin
-components remain React-based and are intentionally separate from Hono JSX SSR.
+`createSsrRenderer`, `SiteDocument`, or `renderSiteDocument` from
+`@agilesyndrome/cf-genai-base/ui/ssr`; the interactive admin components remain
+React-based and are intentionally separate from Hono JSX SSR.
+
+The site document contract owns safe metadata, canonical URLs, Open Graph
+fields, theme color, stylesheets, scripts, and body data attributes. A site
+supplies its own children, theme CSS, navigation, and content components.
 
 Base also provides provider-neutral authorization helpers and browser components
 through `@agilesyndrome/cf-genai-base/auth` and
@@ -67,7 +72,8 @@ short-circuit routes, attach request state, or call `next()`.
 
 Base protects `/admin` and `/api/admin`; the React UI package owns the browser
 pages. For a complete single-route UI, import `AdminDashboard` from
-`@agilesyndrome/cf-genai-base/ui` and mount `<AdminDashboard />`. It includes
+`@agilesyndrome/cf-genai-base/ui` and mount `<AdminDashboard />`, or use
+`mountAdminDashboards` for declarative roots. It includes
 users and access assignments, tenants, user groups, scopes, subscriptions,
 jobs, features, health checks, and circuit breakers with internal list/detail
 navigation. Use `enabledSections` to hide an unavailable optional domain and
@@ -96,6 +102,7 @@ cf-genai check
 cf-genai test
 cf-genai ci
 cf-genai dev
+cf-genai storybook
 cf-genai upgrade base latest
 cf-genai release --confirm
 cf-genai release-status --wait 3
@@ -105,6 +112,12 @@ The CLI includes project checks and releases, scoped-data linting, package
 upgrades with migration vendoring, D1 refresh/backup/restore/migration, site
 status, and user, tenant, healthcheck, circuit-breaker, and platform admin
 operations.
+
+In this repository, `npm install` activates the checked-in Git hooks. Each
+commit runs `cf-genai ci`, the same full verification command used by GitHub
+Actions. Verification includes typechecking, source whitespace/unsafe-type
+checks, compilation, unit tests, the example integration suite, export checks,
+and package assembly.
 
 ```sh
 cf-genai status --env staging

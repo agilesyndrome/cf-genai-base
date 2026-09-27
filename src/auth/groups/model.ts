@@ -5,6 +5,8 @@ export interface AuthGroup {
   description: string;
   created_at?: string;
   updated_at?: string;
+  active?: boolean | number;
+  scopes?: readonly string[];
 }
 
 /** A membership is deliberately separate from the group definition. */

@@ -12,6 +12,7 @@ import type {
   HealthcheckInput,
 } from "./model.js";
 import { healthcheckState, normalizeHealthcheck } from "./validation.js";
+import { evaluateCircuitBreaker, listCircuitBreakers } from "../circuits/service.js";
 
 export async function registerHealthcheck(
   env: D1Environment,
@@ -35,6 +36,9 @@ export async function updateHealthcheck(
   if (!item) return null;
 
   await writeHealthcheckState(env, id, next, { who });
+  await Promise.all((await listCircuitBreakers(env, { who }))
+    .filter((breaker) => breaker.healthchecks.includes(id))
+    .map((breaker) => evaluateCircuitBreaker(env, breaker.id, { who })));
   auditLog({
     who,
     operation: "update",
@@ -45,4 +49,3 @@ export async function updateHealthcheck(
 
 export const getHealthcheck = readHealthcheck;
 export const listHealthchecks = readHealthchecks;
-

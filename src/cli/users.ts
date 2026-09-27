@@ -30,26 +30,36 @@ export function runUserCommand({ action, username, options }: UserCommandInput):
   const assignments: string[] = [];
   if (options.roles !== undefined) assignments.push(`is_admin=${csv(options.roles).includes("admin") ? 1 : 0}`);
   if (!assignments.length && options.scopes === undefined && options.groups === undefined && options.tenants === undefined) throw new Error("user:update requires --roles, --scopes, --groups, or --tenants.");
-  if (assignments.length) query(options.database, target, `UPDATE auth_users SET ${assignments.join(",")},updated_at=CURRENT_TIMESTAMP WHERE id=${sql(user.id)};`, options);
-  updateAssignments(options.scopes, "auth_user_scopes", "scope_name", user.id, options, target);
-  updateAssignments(options.groups, "auth_user_groups", "group_name", user.id, options, target);
-  if (options.tenants !== undefined) {
-    const tenants = csv(options.tenants);
-    if (tenants.length) {
-      const available = query(options.database, target, "SELECT id FROM auth_tenants WHERE id IN (" + tenants.map(sql).join(",") + ");", options);
-      const found = new Set(available.map((tenant) => tenant.id).filter((id): id is string => typeof id === "string"));
-      if (found.size !== tenants.length) throw new Error("One or more tenants do not exist.");
-    }
-    query(options.database, target, "DELETE FROM auth_user_tenants WHERE user_id=" + sql(user.id) + ";", options);
-    for (const tenant of tenants) query(options.database, target, "INSERT OR IGNORE INTO auth_user_tenants (user_id,tenant_id) VALUES (" + sql(user.id) + "," + sql(tenant) + ");", options);
+  const scopes = options.scopes === undefined ? undefined : csv(options.scopes);
+  const groups = options.groups === undefined ? undefined : csv(options.groups);
+  const tenants = options.tenants === undefined ? undefined : csv(options.tenants);
+  validateAssignment(options.database, target, "auth_scopes", "name", scopes, options, true);
+  validateAssignment(options.database, target, "auth_groups", "name", groups, options);
+  validateAssignment(options.database, target, "auth_tenants", "id", tenants, options);
+  const statements = ["BEGIN;"];
+  if (assignments.length) statements.push(`UPDATE auth_users SET ${assignments.join(",")},updated_at=CURRENT_TIMESTAMP WHERE id=${sql(user.id)};`);
+  appendAssignmentSql(statements, scopes, "auth_user_scopes", "scope_name", user.id);
+  appendAssignmentSql(statements, groups, "auth_user_groups", "group_name", user.id);
+  if (tenants !== undefined) {
+    statements.push(`DELETE FROM auth_user_tenants WHERE user_id=${sql(user.id)};`);
+    for (const tenant of tenants) statements.push(`INSERT INTO auth_user_tenants (user_id,tenant_id) VALUES (${sql(user.id)},${sql(tenant)});`);
   }
+  statements.push("COMMIT;");
+  executeJson(options.wranglerCommand, options.database, target, statements.join("\n"), options);
   runUserCommand({ action: "get", username: String(user.id), options });
 }
 
-function updateAssignments(value: string | undefined, table: "auth_user_scopes" | "auth_user_groups", column: "scope_name" | "group_name", userId: unknown, options: CliOptions, target: CliTarget): void {
-  if (value === undefined) return;
-  query(options.database, target, `DELETE FROM ${table} WHERE user_id=${sql(userId)};`, options);
-  for (const item of csv(value)) query(options.database, target, `INSERT OR IGNORE INTO ${table} (user_id,${column},granted_by) VALUES (${sql(userId)},${sql(item)},'human:cli');`, options);
+function validateAssignment(database: string, target: CliTarget, table: "auth_scopes" | "auth_groups" | "auth_tenants", column: "name" | "id", values: string[] | undefined, options: CliOptions, rejectProtected = false): void {
+  if (!values?.length) return;
+  const rows = query(database, target, `SELECT ${column},${rejectProtected ? "system" : ""} FROM ${table} WHERE ${column} IN (${values.map(sql).join(",")});`.replace(`, FROM`, " FROM"), options);
+  if (rows.length !== new Set(values).size) throw new Error(`One or more ${table.replace("auth_", "")} do not exist.`);
+  if (rejectProtected && rows.some((row) => Boolean(row.system))) throw new Error("System scopes cannot be assigned directly.");
+}
+
+function appendAssignmentSql(statements: string[], values: string[] | undefined, table: "auth_user_scopes" | "auth_user_groups", column: "scope_name" | "group_name", userId: unknown): void {
+  if (values === undefined) return;
+  statements.push(`DELETE FROM ${table} WHERE user_id=${sql(userId)};`);
+  for (const item of values) statements.push(`INSERT INTO ${table} (user_id,${column},granted_by) VALUES (${sql(userId)},${sql(item)},'human:cli');`);
 }
 
 function targetValue(value: string): CliTarget {

@@ -1,5 +1,6 @@
 import type { D1Environment } from "../database/index.js";
 import { auditLog } from "../events/index.js";
+import { createD1 } from "../database/index.js";
 import {
   readCircuitBreaker,
   readCircuitBreakerIds,
@@ -42,7 +43,7 @@ export async function setCircuitBreaker(
   env: D1Environment,
   id: string,
   state: unknown,
-  { who = "system:read", automated = false }: CircuitUpdateOptions = {},
+  { who = "system:read", automated = false, reason }: CircuitUpdateOptions = {},
 ): Promise<CircuitBreaker | null> {
   const next = circuitBreakerState(state);
   const current = await getCircuitBreaker(env, id, { who });
@@ -50,15 +51,19 @@ export async function setCircuitBreaker(
 
   const mayHeal = current.state === "tripped" && next === "on" && Boolean(current.allow_self_healing);
   const mayTrip = current.state === "on" && next === "tripped";
+  if (!automated && next === "tripped") throw new TypeError("Circuit breakers can only be tripped by automation.");
   if (automated && !(mayTrip || mayHeal)) return current;
   if (automated && next === "off") return current;
 
-  await writeCircuitBreakerState(env, id, next, { who });
+  const transitionReason = reason || (automated ? "Automated health evaluation changed the circuit state." : `Administrator selected state '${next}'.`);
+  await writeCircuitBreakerState(env, id, next, { who, reason: transitionReason });
   auditLog({
     who,
     operation: "update",
-    resource: `feature:${current.feature} circuit_breaker:${current.name} ${next}`,
+    resource: `feature:${current.feature} circuit-breaker:${current.name}`,
+    details: { state: next, reason: transitionReason, automated },
   });
+  if (env.DB) await createD1(env, { who }).prepare("INSERT INTO core_audit_log (id,who,operation,resource,details_json) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), who, "state", `circuit-breaker:${current.feature}`, JSON.stringify({ circuit: current.name, state: next, reason: transitionReason, automated })).run();
   return getCircuitBreaker(env, id, { who });
 }
 
@@ -81,10 +86,10 @@ export async function evaluateCircuitBreaker(
   const shouldTrip = dependencyFailed || healthcheckFailed;
 
   if (breaker.state === "on" && shouldTrip) {
-    return setCircuitBreaker(env, id, "tripped", { who, automated: true });
+    return setCircuitBreaker(env, id, "tripped", { who, automated: true, reason: `Breaker tripped because ${dependencyFailed ? "a dependent circuit breaker is tripped" : "healthcheck evaluation failed"}.` });
   }
   if (breaker.state === "tripped" && !shouldTrip && breaker.allow_self_healing) {
-    return setCircuitBreaker(env, id, "on", { who, automated: true });
+    return setCircuitBreaker(env, id, "on", { who, automated: true, reason: "All monitored dependencies and healthchecks have recovered." });
   }
   return breaker;
 }

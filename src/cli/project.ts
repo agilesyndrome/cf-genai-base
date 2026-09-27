@@ -251,12 +251,16 @@ export function requestedReleaseAction(currentVersion: string, requestedVersion:
 export interface PreReleaseAction { version: string; bump: boolean }
 
 /** Select the reusable prerelease version for a release. */
-export function preReleaseAction(currentVersion: string, prePublished: boolean): PreReleaseAction {
-  if (/-pre$/.test(currentVersion)) return { version: currentVersion, bump: false };
-  if (prePublished) return { version: `${currentVersion}-pre`, bump: false };
+export function preReleaseAction(currentVersion: string, prePublished = false): PreReleaseAction {
+  const existing = currentVersion.match(/^(\d+)\.(\d+)\.(\d+)-pre(?:\.(\d+))?$/);
+  if (existing) {
+    const next = Number(existing[4] || 0) + 1;
+    return { version: `${existing[1]}.${existing[2]}.${existing[3]}-pre.${next}`, bump: true };
+  }
+  if (prePublished) return { version: `${currentVersion}-pre.1`, bump: true };
   const match = currentVersion.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) throw new Error(`Cannot create a prerelease from ${currentVersion}.`);
-  return { version: `${Number(match[1])}.${Number(match[2])}.${Number(match[3]) + 1}-pre`, bump: true };
+  return { version: `${Number(match[1])}.${Number(match[2])}.${Number(match[3]) + 1}-pre.0`, bump: true };
 }
 
 function requestedReleaseVersion(args: readonly string[] = []): string | null {
@@ -476,7 +480,13 @@ function applyDevMigrations(env: NodeJS.ProcessEnv = process.env): void {
 export function runProjectCommand(command: string, args: readonly string[] = []): ProjectCommandResult {
   if (command === "check") { dataAccessLint(); return run("npm", ["run", "check"]); }
   if (command === "lint") { if (args.length && args[0] !== "data-access") throw new Error("Unknown lint target. Use data-access."); return dataAccessLint(); }
-  if (command === "ci:lint") return dataAccessLint();
+  if (command === "ci:lint") {
+    const result = dataAccessLint();
+    const scripts = packageJson().scripts || {};
+    if (scripts["format:check"]) run("npm", ["run", "format:check"]);
+    if (scripts["lint:source"]) run("npm", ["run", "lint:source"]);
+    return result;
+  }
   if (command === "test") return run("npm", ["test"]);
   if (command === "build" || command === "ci") return run("npm", ["run", "build"]);
   if (command === "dev") {
@@ -486,6 +496,7 @@ export function runProjectCommand(command: string, args: readonly string[] = [])
     const [program, ...programArgs] = devCommand({ hasScript: Boolean(scripts.dev), args });
     return run(program, programArgs);
   }
+  if (command === "storybook") return run("npm", ["run", "storybook", ...args]);
   if (command === "upgrade") return upgradePackage(args);
   if (command === "release" && args.includes("--first")) return publishFirst(args);
   if (command === "release" && args.includes("--add-trust")) return addTrust(args);
@@ -538,10 +549,8 @@ function release(args: readonly string[]): SpawnSyncReturns<string> | undefined 
   const name = packageName();
   let currentVersion = version();
   if (pre) {
-    const existingPre = /-pre$/.test(currentVersion)
-      ? true
-      : npmVersionState(name, `${currentVersion}-pre`).exists;
-    const action = preReleaseAction(currentVersion, existingPre);
+    let action = preReleaseAction(currentVersion);
+    while (npmVersionState(name, action.version).exists) action = preReleaseAction(action.version);
     if (dryRun) {
       console.log(`Dry run: ${name}@${currentVersion} would release as ${action.version}. Main is synchronized and no changes were made.`);
       return;
@@ -606,9 +615,10 @@ function finishRelease(name: string, currentVersion: string, pre: boolean): Spaw
   const remoteHead = output("git", ["ls-remote", "origin", "refs/heads/main"]).split(/\s+/)[0];
   if (localHead !== remoteHead) throw new Error("origin/main could not be verified at the release commit; tag was not created.");
   const tag = `v${currentVersion}`;
-  const tagged = run("git", pre ? ["tag", "-f", tag] : ["tag", tag]);
+  if (tagExists(tag)) throw new Error(`Tag ${tag} already exists; release tags are immutable.`);
+  const tagged = run("git", ["tag", tag]);
   if (tagged.status !== 0) return tagged;
-  return run("git", pre ? ["push", "--force", "origin", `refs/tags/${tag}`] : ["push", "origin", `refs/tags/${tag}`]);
+  return run("git", ["push", "origin", `refs/tags/${tag}`]);
 }
 
 interface ReleaseChecks {

@@ -6,6 +6,7 @@ export { createWorker } from "./runtime/worker.js";
 export type * from "./runtime/model.js";
 export { ensureFeatureManifests } from "./runtime/features.js";
 export { assertBoot, validateBoot, methodNotAllowed, healthResponse } from "./runtime/health.js";
+export { htmlHeaders, htmlResponse } from "./runtime/responses.js";
 export * from "./app.js";
 export * from "./domain/index.js";
 export { BUILT_IN_FEATURES, defineFeature, resolveFeatures, createLLMFeature, createMessagingFeature } from "./features/index.js";
@@ -20,4 +21,6 @@ export type {
 export * from "./core/index.js";
 export * from "./data/index.js";
 export * from "./auth/index.js";
+export type { AdminIdentity, AdminAuthorizationUser } from "./admin/types.js";
 export { secureResponse } from "./core/security/index.js";
+export * from "./input.js";

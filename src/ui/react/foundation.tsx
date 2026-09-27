@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { apiFetch, apiJson, type JsonObject, type JsonValue } from "../../api/client.js";
+import { isJsonObject } from "../../input.js";
 
 export interface ApiResourceOptions { enabled?: boolean; initialValue?: JsonObject | null }
 export interface ApiResource {
@@ -59,14 +60,4 @@ export interface StatusBadgeProps { state: unknown }
 export function StatusBadge({ state }: StatusBadgeProps) {
   const value = String(state || "unknown").toLowerCase();
   return <span className={`cf-ui-status-badge cf-ui-status-${value}`}>{value}</span>;
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(isJsonValue);
-}
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
 }

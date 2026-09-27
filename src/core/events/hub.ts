@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { AppEvent, EventDetails } from "./index.js";
+import { isJsonValue } from "../../input.js";
 
 export interface EventHubEnvironment {}
 
@@ -60,11 +61,4 @@ function isAppEvent(value: unknown): value is AppEvent {
 
 function isEventDetails(value: unknown): value is EventDetails {
   return value !== null && typeof value === "object" && !Array.isArray(value) && isJsonValue(value);
-}
-
-function isJsonValue(value: unknown): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return typeof value === "object" && Object.values(value).every(isJsonValue);
 }

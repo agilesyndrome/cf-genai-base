@@ -1,4 +1,4 @@
-import { getJobRow, insertJobRow, listJobEventRows, listJobRows, updateJobRow } from "./d1.js";
+import { claimJobRow, getJobRow, insertJobRow, listJobEventRows, listJobRows, updateJobRow } from "./d1.js";
 import { publishJobEvent } from "./events.js";
 import type { Job, JobDefinition, JobFilters, JobOptions, JobPatch } from "./model.js";
 
@@ -12,15 +12,17 @@ export const getJob = getJobRow;
 export const listJobs = listJobRows;
 export const listJobEvents = listJobEventRows;
 
-export function startJob(env: unknown, id: unknown, options: JobOptions = {}) {
-  return updateJob(env, id, { status: "running", startedAt: new Date().toISOString() }, options);
+export async function startJob(env: unknown, id: unknown, options: JobOptions = {}) {
+  const job = await claimJobRow(env, id, options);
+  if (job) await publishJobEvent(env, job, "job.running", options);
+  return job;
 }
 
 export function updateJobProgress(env: unknown, id: unknown, progress: unknown, options: JobOptions = {}) {
   return updateJob(env, id, { progress }, options);
 }
 
-export function completeJob(env: unknown, id: unknown, result: unknown = {}, options: JobOptions = {}) {
+export function completeJob(env: unknown, id: unknown, result: unknown = {}, options: JobOptions = {}): Promise<Job | null> {
   return updateJob(env, id, { status: "succeeded", result, finishedAt: new Date().toISOString() }, options);
 }
 
@@ -72,6 +74,7 @@ export async function executeJob<Value, Result = Value>(
     const value = await execute({ job: running, report });
     const result = options.toJobResult ? await options.toJobResult(value) : value;
     const job = await completeJob(env, id, result, options);
+    if (!job || job.status !== "succeeded") throw new Error(`Job ${id} was no longer running`);
     return { job, value };
   } catch (error) {
     await failJob(env, id, error, options);

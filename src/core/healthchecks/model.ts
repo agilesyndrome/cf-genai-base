@@ -26,6 +26,7 @@ export interface HealthcheckRow {
   metadata_json?: string;
   created_at?: string;
   updated_at?: string;
+  checked_at?: string | null;
 }
 
 export interface Healthcheck extends Omit<HealthcheckRow, "metadata_json"> {
@@ -53,6 +54,7 @@ export interface FeatureManifest {
 export interface HealthcheckEnvironment {
   DB?: D1Database;
   features?: readonly FeatureManifest[];
+  app?: { name: string; ui: boolean; api: boolean; admin: boolean; domains: readonly { name: string }[] };
   [key: string]: unknown;
 }
 

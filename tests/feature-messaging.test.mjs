@@ -106,7 +106,7 @@ class JobD1 {
         const row = db.jobs.get(statement.args.at(-1));
         for (const [index, assignment] of [...sql.matchAll(/([a-z_]+) = \?/g)].entries()) row[assignment[1]] = statement.args[index];
       }
-      return {};
+      return { meta: { changes: 1 } };
     };
     statement.first = async () => sql.includes("SELECT * FROM core_jobs WHERE id") ? db.jobs.get(statement.args[0]) || null : null;
     statement.all = async () => ({ results: [] });

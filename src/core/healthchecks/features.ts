@@ -135,9 +135,13 @@ export async function listFeatureCatalog(
     .map((manifest) => {
       const featureHealthchecks = healthchecks.filter((item) => item.feature === manifest.feature);
       const featureBreakers = circuitBreakers.filter((item) => item.feature === manifest.feature);
+      const breakerHealth: HealthcheckState = featureBreakers.some((item) => item.state === "tripped")
+        ? "red"
+        : featureBreakers.some((item) => item.state === "off") ? "yellow" : "green";
+      const checkHealth = featureHealthchecks.length || featureBreakers.length ? healthState(featureHealthchecks) : "yellow";
       return {
         ...manifest,
-        health: featureHealthchecks.length ? healthState(featureHealthchecks) : "yellow",
+        health: severity[breakerHealth] > severity[checkHealth] ? breakerHealth : checkHealth,
         healthchecks: featureHealthchecks,
         circuit_breakers: featureBreakers,
         circuit_breaker: featureBreakers.find((item) => item.name === "rollup") || null,
@@ -146,4 +150,3 @@ export async function listFeatureCatalog(
 }
 
 export { normalizeFeatureManifest } from "./validation.js";
-

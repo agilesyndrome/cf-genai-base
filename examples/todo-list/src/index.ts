@@ -2,7 +2,6 @@ import {
   AppDomain,
   createWorker,
   defineApp,
-  defineFeature,
   type DomainRequestContext,
   type RuntimeFeature,
 } from "../../../src/index.js";
@@ -99,5 +98,5 @@ function page() {
   return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Todo list</title><style>:root{font:16px system-ui;color:#243126;background:#f5f1e8}body{max-width:720px;margin:4rem auto;padding:0 1rem}.card{background:#fffdf8;padding:2rem;border-radius:18px;box-shadow:0 8px 30px #23301c18}h1{margin-top:0}.row{display:flex;gap:.6rem;margin:1rem 0}input{flex:1;padding:.75rem;border:1px solid #c9d1c1;border-radius:9px}button{border:0;border-radius:9px;padding:.7rem 1rem;background:#486b4a;color:white;cursor:pointer}.todo{display:flex;align-items:center;gap:.7rem;border-top:1px solid #e5e8df;padding:.8rem 0}.todo.done span{text-decoration:line-through;color:#7c847c}.meta{color:#798275;font-size:.9rem}</style></head><body><main class="card"><h1>Todo list</h1><p class="meta">Tenant-scoped, D1-backed todos. Sign in with Basic Auth.</p><form class="row"><input id="title" placeholder="What needs doing?" autocomplete="off"><button>Add</button></form><section id="todos"></section></main><script>const list=document.querySelector('#todos'),form=document.querySelector('form'),input=document.querySelector('#title');async function load(){const r=await fetch('/api/todos');const d=await r.json();list.innerHTML=(d.todos||[]).map(t=>'<label class="todo '+(t.done?'done':'')+'"><input type="checkbox" '+(t.done?'checked':'')+' data-id="'+t.id+'"><span>'+t.title+'</span><button type="button" data-delete="'+t.id+'">×</button></label>').join('')||'<p class="meta">Nothing here yet.</p>';list.querySelectorAll('input[data-id]').forEach(e=>e.onchange=()=>fetch('/api/todos/'+e.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:e.checked})}).then(load));list.querySelectorAll('[data-delete]').forEach(e=>e.onclick=()=>fetch('/api/todos/'+e.dataset.delete,{method:'DELETE'}).then(load))}form.onsubmit=e=>{e.preventDefault();const title=input.value.trim();if(!title)return;fetch('/api/todos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})}).then(()=>{input.value='';load()})};load();</script></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 
-export const app = defineApp({ name: "todo-list", ui: true, api: true, admin: true, features: [basicUsers, defineFeature("llm")], domains: [new TodoDomain()] });
+export const app = defineApp({ name: "todo-list", ui: true, api: true, admin: true, features: [basicUsers], domains: [new TodoDomain()] });
 export default createWorker({ app, fetch: async (request) => new URL(request.url).pathname === "/" ? page() : new Response("Not found", { status: 404 }) });

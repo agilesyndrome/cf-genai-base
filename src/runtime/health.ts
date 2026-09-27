@@ -34,4 +34,3 @@ export function healthResponse(env: RuntimeBindings, details: HealthDetails = {}
     ...details,
   }, { headers: { "Cache-Control": "no-store" } });
 }
-

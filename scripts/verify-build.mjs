@@ -54,7 +54,7 @@ if (!cliOutput.startsWith("Usage:\n")) throw new Error("compiled CLI entrypoint 
 const binPath = manifest.bin?.["cf-genai"];
 if (binPath !== "bin/cf-genai.js") throw new Error("package bin must remain bin/cf-genai.js");
 const binSource = await readFile(new URL(binPath, repositoryRoot), "utf8");
-if (!binSource.startsWith("#!/usr/bin/env node\n") || !binSource.includes("dist/cli/cli.js") || !binSource.includes("src/cli/cli.js")) {
+if (!binSource.startsWith("#!/usr/bin/env node\n") || !binSource.includes("dist/cli/cli.js") || !binSource.includes("src/cli/cli.ts") || !binSource.includes('"tsx"')) {
   throw new Error("bin/cf-genai.js must preserve the shebang and source/dist fallback");
 }
 

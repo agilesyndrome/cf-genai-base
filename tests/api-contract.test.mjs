@@ -41,7 +41,7 @@ test("application manifests isolate and freeze SDK registrations", () => {
 test("AppDomain registers downstream routes without imposing admin access", async () => {
   class CookbookDomain extends AppDomain {
     constructor() {
-      super({ name: "cookbook.recipes", basePath: "/api/recipes" });
+      super({ name: "cookbook.recipes", basePath: "/api/recipes", auth: "public" });
       this.route({ method: "GET", path: "/:recipeId", handler: ({ params }) => Response.json({ id: params.recipeId }) });
     }
   }
@@ -54,7 +54,7 @@ test("AppDomain registers downstream routes without imposing admin access", asyn
 test("apps activate only the built-in features they request", async () => {
   class LlmStatusDomain extends AppDomain {
     constructor() {
-      super({ name: "cookbook.llm-status", basePath: "/" });
+      super({ name: "cookbook.llm-status", basePath: "/", auth: "public" });
       this.route({ method: "GET", handler: () => new Response("llm enabled") });
     }
   }

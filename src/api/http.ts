@@ -1,10 +1,8 @@
 export const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
+import { readJson } from "../core/security/index.js";
 
 export async function readJsonObject(request: Request): Promise<Record<string, unknown> | null> {
-  const body: unknown = await request.json().catch(() => null);
-  return body !== null && typeof body === "object" && !Array.isArray(body)
-    ? body as Record<string, unknown>
-    : null;
+  return readJson(request);
 }
 
 export function stringField(body: Record<string, unknown> | null, field: string): string | null {

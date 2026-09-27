@@ -4,15 +4,21 @@ export interface D1Environment {
   DB?: D1Database;
 }
 
+export function hasD1Binding(value: unknown): value is D1Environment & { DB: D1Database } {
+  return value !== null
+    && typeof value === "object"
+    && "DB" in value
+    && Boolean(Reflect.get(value, "DB"));
+}
+
 export interface D1AuditOptions {
   who?: string;
 }
 
 /** Return the environment's D1 binding with audit logging around executing methods. */
 export function createD1(env: unknown, { who = "system:read" }: D1AuditOptions = {}): D1Database {
-  const db = (env as D1Environment | null)?.DB;
-  if (!db) throw new Error("A DB binding is required");
-  return auditedD1(db, who);
+  if (!hasD1Binding(env)) throw new Error("A DB binding is required");
+  return auditedD1(env.DB, who);
 }
 
 export function auditedD1(db: D1Database, who = "system:read"): D1Database {
@@ -47,6 +53,13 @@ function auditedStatement(statement: D1PreparedStatement, who: string, sql: stri
   return new Proxy(statement, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver);
+      if (property === "bind" && typeof value === "function") {
+        return (...args: unknown[]) => auditedStatement(
+          Reflect.apply(value, target, args) as D1PreparedStatement,
+          who,
+          sql,
+        );
+      }
       if (
         typeof property === "string"
         && ["run", "first", "all", "raw"].includes(property)

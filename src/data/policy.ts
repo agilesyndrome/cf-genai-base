@@ -21,7 +21,9 @@ export function isAllowed(
         ? Boolean(actor.userId)
         : requestedScope === "public"
           ? Boolean(actor.publicTenantId && operation === "read")
-          : Boolean(actor.tenantId && (actor.userId || (actor.public && resource.publicRead)))
+          : actor.public
+            ? Boolean(actor.tenantId && resource.publicRead && operation === "read")
+            : Boolean(actor.tenantId && actor.userId)
     );
   const requiredScopes = resource.operationScopes[operation] || [];
   const operationAllowed = actor.system

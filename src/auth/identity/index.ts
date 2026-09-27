@@ -93,19 +93,23 @@ export function requestContext<
   state,
   data,
 }: RequestContextInput<Env, Data, State>) {
-  const identity = requestIdentity(state);
   return {
     request,
     env,
     ctx,
     state,
     data: data ?? state.data,
-    ...identity,
+    get user() { return state.user ?? null; },
+    get authUser() { return authUser(state); },
+    get userId() { return userId(state); },
+    get who() { return requestActor(state); },
+    get isAuthenticated() { return Boolean(authUser(state) || state.user); },
+    get isAdmin() { return Boolean(state.user?.auth_strategy === "http_basic" || authUser(state)?.is_admin); },
     event: (
       what: string,
       where = "application",
       details: Record<string, unknown> = {},
       when: Date = new Date(),
-    ) => emitEvent(env, Event(identity.who, what, where, when, details), ctx),
+    ) => emitEvent(env, Event(requestActor(state), what, where, when, details), ctx),
   };
 }

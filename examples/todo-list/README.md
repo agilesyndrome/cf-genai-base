@@ -10,7 +10,7 @@ This is a deliberately small, complete site showing the `-base` contracts in a r
 - an optional `TodoAdmin` React entry point for the shared AdminDashboard
 
 From this directory, install the repository dependencies and set a real D1 id in
-`wrangler.jsonc`. Apply the eight package migrations first (from the repository's
+`wrangler.jsonc`. Apply the ten package migrations first (from the repository's
 `migrations/` directory), then execute this example's
 `migrations/0009_todo_list.sql` once against the same database (for local dev,
 `npx wrangler d1 execute cf-genai-todo-list --local --file migrations/0009_todo_list.sql`),

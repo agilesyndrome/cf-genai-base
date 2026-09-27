@@ -15,9 +15,12 @@ import {
 } from "./admin-details.js";
 import { AdminShell, ADMIN_SYSTEM_LINKS } from "./admin-shell.js";
 import { JobDetail, JobList } from "./jobs.js";
+import { AuditLogCatalog } from "./admin-audit.js";
 import type { AdminLinkItem, AdminSelection, ApplicationAdminSection } from "./types.js";
+import { useApiResource } from "./foundation.js";
+import { recordField } from "./types.js";
 
-export type AdminDashboardSection = "home" | "users" | "tenants" | "groups" | "scopes" | "subscriptions" | "jobs" | "features" | "healthchecks" | "circuit-breakers";
+export type AdminDashboardSection = "home" | "users" | "tenants" | "groups" | "scopes" | "subscriptions" | "jobs" | "features" | "audit-log" | "healthchecks" | "circuit-breakers";
 export const ADMIN_DASHBOARD_SECTIONS: readonly AdminDashboardSection[] = Object.freeze([
   "home",
   "users",
@@ -27,6 +30,7 @@ export const ADMIN_DASHBOARD_SECTIONS: readonly AdminDashboardSection[] = Object
   "subscriptions",
   "jobs",
   "features",
+  "audit-log",
   "healthchecks",
   "circuit-breakers",
 ]);
@@ -39,6 +43,7 @@ const RENDERERS = new Map<string, () => ReactNode>(Object.entries({
   subscriptions: () => <SubscriptionCatalog />,
   jobs: () => <JobList />,
   features: () => <FeatureCatalog />,
+  "audit-log": () => <AuditLogCatalog />,
   healthchecks: () => <HealthcheckCatalog />,
   "circuit-breakers": () => <CircuitBreakerCatalog />,
 }));
@@ -61,6 +66,7 @@ export interface AdminDashboardProps {
   enabledSections?: readonly string[];
   applicationSections?: readonly ApplicationAdminSection[];
   overview?: ReactNode;
+  applicationRegistration?: ApplicationRegistration;
   onSectionChange?: (selection: AdminSelection) => void;
 }
 
@@ -74,6 +80,7 @@ export function AdminDashboard({
   enabledSections = ADMIN_DASHBOARD_SECTIONS,
   applicationSections = [],
   overview,
+  applicationRegistration,
   onSectionChange,
 }: AdminDashboardProps) {
   const enabled = useMemo(() => new Set(enabledSections), [enabledSections]);
@@ -83,7 +90,7 @@ export function AdminDashboard({
   const [selection, setSelection] = useState<AdminSelection>({ key: fallback, id: null });
 
   const navigate = (key: string, id: string | null = null) => {
-    if (!enabled.has(key) && !customByKey.has(key)) return;
+    if (key !== "audit-log" && !enabled.has(key) && !customByKey.has(key)) return;
     setSelection({ key, id });
     onSectionChange?.({ key, id });
   };
@@ -102,7 +109,7 @@ export function AdminDashboard({
   const content = custom
     ? renderApplicationSection(custom, selection)
     : selection.key === "home"
-      ? overview || <AdminOverview links={builtInLinks.filter((link) => link.key !== "home")} onNavigate={navigate} />
+      ? overview || <AdminOverview registration={applicationRegistration} />
       : detail && selection.id
         ? detail(selection.id)
         : RENDERERS.get(selection.key)?.() || <p>Unknown administration section.</p>;
@@ -121,9 +128,41 @@ export function AdminDashboard({
   </AdminShell>;
 }
 
-export interface AdminOverviewProps { links?: readonly AdminLinkItem[]; onNavigate?: (key: string) => void }
-export function AdminOverview({ links = ADMIN_SYSTEM_LINKS.filter((link) => link.key !== "home"), onNavigate }: AdminOverviewProps) {
-  return <section className="cf-ui-card"><header><h1>Administration</h1><p>Manage access, tenants, platform capabilities, and runtime operations.</p></header><div className="cf-ui-admin-grid">{links.map((link) => <a key={link.key} href={link.href} onClick={onNavigate ? (event) => { event.preventDefault(); onNavigate(link.key); } : undefined}><strong>{link.label}</strong><span>Open {link.label.toLowerCase()}</span></a>)}</div></section>;
+export interface ApplicationRegistration { name?: string; version?: string; registeredFeatures?: readonly { name?: string; displayName?: string; packageName?: string; version?: string }[]; domains?: readonly string[]; ui?: boolean; api?: boolean; admin?: boolean }
+export interface AdminOverviewProps { registration?: ApplicationRegistration; links?: readonly AdminLinkItem[]; onNavigate?: (key: string) => void }
+export function AdminOverview({ registration }: AdminOverviewProps) {
+  const resource = useApiResource("/api/admin/registration");
+  const serverRegistration = recordField(resource.value, "registration");
+  const current = registration || readApplicationRegistration(serverRegistration);
+  const features = current?.registeredFeatures || [];
+  return <section className="cf-ui-card"><header><h1>{current?.name || "Application administration"}</h1><p>Application registration and runtime capabilities.</p></header><dl className="cf-ui-detail-list"><div><dt>App name</dt><dd>{current?.name || "Not supplied"}</dd></div><div><dt>Version</dt><dd>{current?.version || "Not supplied"}</dd></div><div><dt>Interfaces</dt><dd>{[current?.ui && "UI", current?.api && "API", current?.admin && "Admin"].filter(Boolean).join(" · ") || "Not supplied"}</dd></div><div><dt>Registered domains</dt><dd>{current?.domains?.join(", ") || "None"}</dd></div></dl><section><h2>Registered features</h2>{features.length ? <ul className="cf-ui-list">{features.map((feature, index) => <li className="cf-ui-list-row" key={feature.name || index}><strong>{feature.displayName || feature.name}</strong><small>{feature.packageName || "Unknown package"} · {feature.version || "Unknown version"}</small></li>)}</ul> : <p>No application features registered.</p>}</section></section>;
+}
+
+function readApplicationRegistration(value: ReturnType<typeof recordField>): ApplicationRegistration | undefined {
+  if (!value) return undefined;
+  const features = Array.isArray(value.registeredFeatures)
+    ? value.registeredFeatures.filter(isApplicationFeature)
+    : undefined;
+  const domains = Array.isArray(value.domains)
+    ? value.domains.filter((domain): domain is string => typeof domain === "string")
+    : undefined;
+  return {
+    name: typeof value.name === "string" ? value.name : undefined,
+    version: typeof value.version === "string" ? value.version : undefined,
+    registeredFeatures: features,
+    domains,
+    ui: typeof value.ui === "boolean" ? value.ui : undefined,
+    api: typeof value.api === "boolean" ? value.api : undefined,
+    admin: typeof value.admin === "boolean" ? value.admin : undefined,
+  };
+}
+
+function isApplicationFeature(value: unknown): value is NonNullable<ApplicationRegistration["registeredFeatures"]>[number] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const feature = value as Record<string, unknown>;
+  return ["name", "displayName", "packageName", "version"].every((key) =>
+    feature[key] === undefined || typeof feature[key] === "string"
+  );
 }
 
 function renderApplicationSection(section: ApplicationAdminSection, selection: AdminSelection): ReactNode {

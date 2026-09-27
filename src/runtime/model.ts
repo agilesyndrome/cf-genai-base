@@ -24,6 +24,8 @@ export interface RuntimeFeature<Env extends RuntimeBindings = RuntimeBindings, S
   getUser?: (request: Request, env: Env) => AdminIdentity | null | Promise<AdminIdentity | null>;
   eventHandler?: EventHandler<Env, ExecutionContext>;
   event_handler?: EventHandler<Env, ExecutionContext>;
+  /** Environment values required when this feature handles a request. */
+  requiredEnvironment?: (context: { request: Request; url: URL }) => readonly string[];
   [key: string]: unknown;
 }
 
@@ -121,6 +123,8 @@ export interface CreateWorkerOptions<Env extends RuntimeBindings = RuntimeBindin
   publicTenantId?: string | null;
   health?: HealthProvider;
   boot?: (env: Env, context: { request: Request; ctx: ExecutionContext }) => unknown;
+  /** Bindings required before any request-specific work begins. */
+  requiredBindings?: readonly string[];
   security?: boolean;
   eventHubBinding?: string;
 }

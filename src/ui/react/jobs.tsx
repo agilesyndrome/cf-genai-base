@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, apiJson, type JsonValue } from "../../api/client.js";
+import { isJsonValue } from "../../input.js";
 import { ResourceState, StatusBadge } from "./foundation.js";
 import { useLiveEvent, useLiveEvents } from "./live-events.js";
 
@@ -117,5 +118,4 @@ function isJobEvent(value: unknown): value is JobEvent { return isObject(value) 
 function isObject(value: unknown): value is object { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function optionalString(value: object, key: string): boolean { const field: unknown = Reflect.get(value, key); return field === undefined || typeof field === "string"; }
 function optionalJson(value: object, key: string): boolean { const field: unknown = Reflect.get(value, key); return field === undefined || isJsonValue(field); }
-function isJsonValue(value: unknown): value is JsonValue { if (value === null || typeof value === "string" || typeof value === "boolean") return true; if (typeof value === "number") return Number.isFinite(value); if (Array.isArray(value)) return value.every(isJsonValue); return typeof value === "object" && Object.values(value).every(isJsonValue); }
 function parseJobFilters(value: string): JobFilters { const parsed: unknown = JSON.parse(value); if (!isObject(parsed)) return {}; const result: JobFilters = {}; for (const [key, item] of Object.entries(parsed)) if (item === null || ["string", "number", "boolean"].includes(typeof item)) result[key] = item === null || typeof item === "string" || typeof item === "number" || typeof item === "boolean" ? item : undefined; return result; }

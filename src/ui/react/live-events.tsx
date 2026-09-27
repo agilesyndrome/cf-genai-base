@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AppEvent } from "../../core/events/index.js";
+import { isJsonValue } from "../../input.js";
 
 export type LiveEventConnection = "connecting" | "disabled" | "unsupported" | "open" | "error" | "reconnecting" | "closed" | "unavailable";
 export type LiveEventListener = (event: AppEvent) => void;
@@ -85,11 +86,4 @@ function jsonObject(value: object): Record<string, import("../../core/events/ind
   const result: Record<string, import("../../core/events/index.js").EventJsonValue> = {};
   for (const [key, item] of Object.entries(value)) if (isJsonValue(item)) result[key] = item;
   return result;
-}
-
-function isJsonValue(value: unknown): value is import("../../core/events/index.js").EventJsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return typeof value === "object" && Object.values(value).every(isJsonValue);
 }

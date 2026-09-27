@@ -5,6 +5,7 @@ export interface AuthTenant {
   created_at?: string;
   updated_at?: string;
   user_count?: number;
+  active?: boolean | number;
 }
 
 export interface NewAuthTenant {

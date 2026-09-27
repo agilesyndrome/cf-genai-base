@@ -11,7 +11,7 @@ import {
 } from "../../api/http.js";
 import { IMPERSONATION_COOKIE } from "../impersonation/constants.js";
 import { createImpersonationToken } from "../impersonation/service.js";
-import { listUserGroups, replaceUserGroups } from "../groups/index.js";
+import { listGroups, listUserGroups, replaceUserGroups } from "../groups/index.js";
 import { listUserGrants, replaceUserGrants } from "../scopes/index.js";
 import { listUserTenants, replaceUserTenants } from "../tenants/index.js";
 import { AUTH_USER_REPOSITORY } from "../repositories.js";
@@ -35,8 +35,11 @@ export class AuthUsersDomain extends AppDomain<AuthUser, AuthUsersEnvironment, I
     });
     this.route({
       method: "GET",
-      handler: ({ env, identity }) =>
-        listAuthorizationUsers(env, { who: identity.who }).then((users) => Response.json({ users })),
+      handler: ({ env, identity, request }) => {
+        const url = new URL(request.url);
+        const active = url.searchParams.get("active");
+        return listAuthorizationUsers(env, { who: identity.who, email: url.searchParams.get("email") || undefined, active: active === null ? undefined : active === "1", limit: Number(url.searchParams.get("limit") || 100), offset: Number(url.searchParams.get("offset") || 0) }).then((users) => Response.json({ users }));
+      },
     });
     this.route({
       method: "POST",
@@ -83,12 +86,14 @@ async function getUser({ env, identity, params }: Context): Promise<Response> {
     const user = await getAuthorizationUser(env, params.userId, { who: identity.who });
     if (!user) return notFound("User not found.");
     const options = { who: identity.who };
-    const [groups, tenants, grants] = await Promise.all([
+    const [groups, tenants, grants, groupCatalog] = await Promise.all([
       listUserGroups(env, user.id, options),
       listUserTenants(env, user.id, options),
       listUserGrants(env, user.id, options),
+      listGroups(env, options),
     ]);
-    return Response.json({ user: { ...user, groups, tenants, scopes: grants.map((grant) => grant.scope_name) } });
+    const scopesByGroup = new Map(groupCatalog.map((group) => [group.name, group.scopes || []]));
+    return Response.json({ user: { ...user, groups: groups.map((group) => ({ ...group, scopes: scopesByGroup.get(String(group.group_name)) || [] })), tenants, scopes: grants.map((grant) => grant.scope_name) } });
   } catch (error) {
     return badRequest(errorMessage(error));
   }

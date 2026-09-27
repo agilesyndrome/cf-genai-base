@@ -43,6 +43,22 @@
 .cf-ui-card button { padding: .45rem .65rem; border: 1px solid var(--cf-ui-border); border-radius: .4rem; background: var(--cf-ui-bg); color: inherit; cursor: pointer; }
 .cf-ui-card button:disabled { cursor: wait; opacity: .6; }
 .cf-ui-check-list label { display: flex; align-items: center; gap: .35rem; }
+.cf-ui-filter-bar { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+.cf-ui-filter-bar input, .cf-ui-filter-bar select, .cf-ui-filter-bar button, .cf-ui-breaker select { padding: .45rem .6rem; border: 1px solid var(--cf-ui-border); border-radius: .4rem; background: var(--cf-ui-bg); color: inherit; }
+.cf-ui-list-row { display: flex; justify-content: space-between; gap: 1rem; padding: .75rem 0; border-bottom: 1px solid var(--cf-ui-border); }
+.cf-ui-feature-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 1rem; padding: .9rem 0; border-bottom: 1px solid var(--cf-ui-border); }
+.cf-ui-feature-row h2, .cf-ui-breaker h2 { margin: 0; font-size: 1rem; }
+.cf-ui-health-icon { font-size: 1.4rem; line-height: 1; }
+.cf-ui-status-badge { display: inline-flex; align-items: center; gap: .25rem; }
+.cf-ui-active-pill { display: inline-block; padding: .15rem .45rem; border-radius: 999px; font-size: .8rem; font-weight: 700; }
+.cf-ui-active-pill.active { background: #dff3e7; color: #26734d; }
+.cf-ui-active-pill.inactive { background: #eee; color: var(--cf-ui-muted); }
+.cf-ui-scope-list { display: grid; gap: .35rem; padding: 0; list-style: none; }
+.cf-ui-scope-list label { display: flex; gap: .4rem; align-items: center; }
+.cf-ui-feature-heading { display: flex; align-items: center; gap: .75rem; }
+.cf-ui-feature-heading h1 { margin-bottom: 0; }
+.cf-ui-feature-heading p { margin-top: .2rem; }
+code { white-space: pre-wrap; word-break: break-word; }
 .cf-ui-job-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; position: fixed; right: 1rem; bottom: 1rem; z-index: 10; max-width: min(32rem, calc(100vw - 2rem)); padding: .8rem 1rem; border: 1px solid var(--cf-ui-border); border-radius: .6rem; background: var(--cf-ui-bg); box-shadow: 0 .5rem 2rem #0002; }
 .cf-ui-job-banner button { border: 0; background: transparent; color: inherit; cursor: pointer; text-decoration: underline; }
-@media (max-width: 720px) { .cf-ui-admin-shell { grid-template-columns: 1fr; } .cf-ui-admin-nav { border-right: 0; border-bottom: 1px solid var(--cf-ui-border); } .cf-ui-breaker { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .cf-ui-admin-shell { grid-template-columns: 1fr; } .cf-ui-admin-nav { border-right: 0; border-bottom: 1px solid var(--cf-ui-border); } .cf-ui-breaker { grid-template-columns: 1fr; } .cf-ui-feature-row { grid-template-columns: auto 1fr; } }

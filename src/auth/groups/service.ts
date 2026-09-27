@@ -1,6 +1,6 @@
 import { requestActor } from "../identity/index.js";
 import { canManageGroups } from "./policy.js";
-import { deleteGroupRow, getGroupRow, insertGroupRow, listGroupRows, listGroupUsersRows, listUserGroupsRows, replaceUserGroupsRows, updateGroupRow } from "./d1.js";
+import { deleteGroupRow, getGroupRow, insertGroupRow, listGroupRows, listGroupUsersRows, listUserGroupsRows, replaceGroupScopesRows, replaceUserGroupsRows, updateGroupRow } from "./d1.js";
 import { validateGroupInput, validateGroupName, validateGroupNames } from "./validation.js";
 import type { GroupAuthorizationState, AuthGroup, GroupUser } from "./model.js";
 
@@ -39,6 +39,10 @@ export async function listUserGroups(env: unknown, userId: string, options: Grou
 
 export async function replaceUserGroups(env: unknown, userId: string, groups: readonly unknown[], grantedBy?: string, options: GroupServiceOptions = {}) {
   return replaceUserGroupsRows(env, userId, validateGroupNames(groups), grantedBy, options);
+}
+
+export function replaceGroupScopes(env: unknown, groupName: string, scopes: readonly unknown[], grantedBy?: string, options: GroupServiceOptions = {}) {
+  return replaceGroupScopesRows(env, validateGroupName(groupName), scopes.map(String), grantedBy, options);
 }
 
 export function assertGroupAdministrator(state: GroupAuthorizationState): void {

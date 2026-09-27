@@ -12,6 +12,7 @@ import {
   getGroup,
   listGroupUsers,
   listGroups,
+  replaceGroupScopes,
   updateGroup,
 } from "./service.js";
 import { GroupListView } from "./views/list.js";
@@ -57,7 +58,17 @@ export class AuthGroupsDomain extends AppDomain<
           Response.json({ users }),
         ),
     });
+    this.route({ method: "PUT", path: "/:groupName/scopes", csrf: true, scopes: "groups:manage", handler: setScopes });
   }
+}
+
+async function setScopes({ request, env, identity, state, params }: Context): Promise<Response> {
+  try {
+    const body = await readJsonObject(request);
+    if (!Array.isArray(body?.scopes) || !body.scopes.every((scope) => typeof scope === "string")) return badRequest("scopes must be an array");
+    const scopes = await replaceGroupScopes(env, params.groupName, body.scopes, undefined, { who: identity.who });
+    return Response.json({ scopes });
+  } catch (error) { return badRequest(errorMessage(error)); }
 }
 
 async function create({ request, env, identity }: Context): Promise<Response> {

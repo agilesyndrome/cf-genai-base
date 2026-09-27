@@ -17,7 +17,7 @@ test("tenant migration seeds the default tenant and migrates existing users", as
   assert.match(migration, /SELECT id, 'easley-family' FROM auth_users/);
 });
 
-test("new authorization users are attached to the default tenant", async () => {
+test("new authorization users are not enrolled in a tenant by login alone", async () => {
   const statements = [];
   const user = { id: "user-1", provider: "oauth", subject: "subject-1", email: "person@example.test", display_name: "Person", is_admin: 0 };
   const db = {
@@ -33,14 +33,14 @@ test("new authorization users are attached to the default tenant", async () => {
       };
       return statement;
     },
-    async batch(items) { statements.push(...items.map((item) => ({ sql: item.sql, args: item.args }))); },
+  async batch(items) { statements.push(...items.map((item) => ({ sql: item.sql, args: item.args }))); },
   };
   // The D1 wrapper passes the SQL only to the underlying statement; expose it for this test double.
   const originalPrepare = db.prepare;
   db.prepare = (sql) => Object.assign(originalPrepare.call(db, sql), { sql });
   const result = await ensureUser({ DB: db }, { sub: "subject-1", email: user.email, name: user.display_name });
   assert.equal(result.id, user.id);
-  assert.deepEqual(statements.slice(1).map((item) => item.args), [[DEFAULT_TENANT_ID, "Easley Family"], [statements[0].args[0], DEFAULT_TENANT_ID]]);
+  assert.deepEqual(statements.slice(1), []);
 });
 
 test("existing authorization users are not rewritten when identity fields are unchanged", async () => {
@@ -92,7 +92,7 @@ test("feature routes are composed before the site handler", async () => {
   const { AppDomain } = await import("../src/domain/index.js");
   class FeatureDomain extends AppDomain {
     constructor() {
-      super({ name: "example.plugin", basePath: "/plugin" });
+      super({ name: "example.plugin", basePath: "/plugin", auth: "public" });
       this.route({ method: "GET", handler: () => new Response("feature") });
     }
   }

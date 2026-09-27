@@ -42,6 +42,8 @@ export function createHonoRuntime<Env extends object, State>(
   options: HonoRuntimeOptions<Env, State>,
 ) {
   const app = new Hono<{ Bindings: RuntimeBindings<Env, State> }>();
+  // Leave classification to createWorker's single error boundary.
+  app.onError((error) => { throw error; });
 
   for (const layer of options.layers ?? []) {
     const middleware: MiddlewareHandler<{ Bindings: RuntimeBindings<Env, State> }> = async (

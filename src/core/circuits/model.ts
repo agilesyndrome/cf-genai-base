@@ -51,4 +51,5 @@ export interface CircuitAccessOptions {
 
 export interface CircuitUpdateOptions extends CircuitAccessOptions {
   automated?: boolean;
+  reason?: string;
 }

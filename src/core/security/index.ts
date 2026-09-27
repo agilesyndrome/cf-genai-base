@@ -136,7 +136,12 @@ export function secureResponse(response: Response): Response {
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Strict-Transport-Security", "max-age=31536000");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+    ...(response.status === 101 && response.webSocket ? { webSocket: response.webSocket } : {}),
+  });
 }
 
 export function requireUser(identity: IdentityLike | null | undefined, response = secureJson({ error: "Authentication is required." }, 401)): Response | null {

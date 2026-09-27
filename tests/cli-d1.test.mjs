@@ -16,6 +16,7 @@ test("dev command loads .env.dev through 1Password", () => {
   ]);
 });
 
+
 test("data access lint detects direct D1 calls in cf-genai source", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "cf-genai-lint-"));
   try {
@@ -172,10 +173,10 @@ test("prepared release versions can be tagged without a fake downgrade commit", 
   assert.throws(() => requestedReleaseAction("5.0.0", "4.1.0"), /must not be older/);
 });
 
-test("prerelease releases reuse the current pre version and otherwise bump once", () => {
-  assert.deepEqual(preReleaseAction("5.0.3", false), { version: "5.0.4-pre", bump: true });
-  assert.deepEqual(preReleaseAction("5.0.3", true), { version: "5.0.3-pre", bump: false });
-  assert.deepEqual(preReleaseAction("5.0.4-pre", true), { version: "5.0.4-pre", bump: false });
+test("prerelease releases use monotonically increasing immutable versions", () => {
+  assert.deepEqual(preReleaseAction("5.0.3", false), { version: "5.0.4-pre.0", bump: true });
+  assert.deepEqual(preReleaseAction("5.0.3", true), { version: "5.0.3-pre.1", bump: true });
+  assert.deepEqual(preReleaseAction("5.0.4-pre.0", true), { version: "5.0.4-pre.1", bump: true });
 });
 
 test("a prepared unpublished version can be advanced by a normal release", () => {

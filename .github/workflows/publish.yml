@@ -28,4 +28,10 @@ jobs:
           expected_tag="v$(node -p "require('./package.json').version")"
           test "$GITHUB_REF_NAME" = "$expected_tag"
       - run: node bin/cf-genai.js ci
-      - run: npm publish
+      - name: Publish stable or prerelease package
+        run: |
+          if [[ "$(node -p "require('./package.json').version")" == *-* ]]; then
+            npm publish --tag next
+          else
+            npm publish --tag latest
+          fi

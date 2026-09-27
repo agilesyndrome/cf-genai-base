@@ -24,6 +24,11 @@ export class HealthchecksDomain extends AppDomain<unknown, HealthcheckEnvironmen
     });
     this.route({
       method: "GET",
+      path: "/registration",
+      handler: ({ env }) => Response.json({ registration: env.app ? { name: env.app.name, ui: env.app.ui, api: env.app.api, admin: env.app.admin, domains: env.app.domains.map((domain) => domain.name), registeredFeatures: (env.features || []).map((feature) => ({ name: feature.name, displayName: feature.displayName, packageName: feature.packageName, version: feature.version })) } : null }),
+    });
+    this.route({
+      method: "GET",
       path: "/healthchecks",
       handler: ({ env, identity }) =>
         listHealthchecks(env, { who: identity.who }).then((healthchecks) =>

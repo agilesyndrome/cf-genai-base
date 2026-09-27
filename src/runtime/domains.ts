@@ -8,7 +8,7 @@ type RuntimeContext = DomainRequestContext<RuntimeBindings, RuntimeState>;
 /** Public operational health belongs to a domain even though it has no D1 model. */
 export class RuntimeHealthDomain extends AppDomain<unknown, RuntimeBindings, RuntimeState> {
   constructor(health?: HealthProvider) {
-    super({ name: "runtime.health", basePath: "/health" });
+    super({ name: "runtime.health", basePath: "/health", auth: "public" });
     const handler = (context: RuntimeContext) => respondWithHealth(context, health);
     this.route({ method: "GET", handler });
     this.route({ method: "GET", absolutePath: "/api/health", handler });

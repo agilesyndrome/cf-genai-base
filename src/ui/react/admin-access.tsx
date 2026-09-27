@@ -1,17 +1,20 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { apiJson } from "../../api/client.js";
 import { ResourceState, useApiResource } from "./foundation.js";
 import { recordArrayField, type UiRecord } from "./types.js";
 
 export function UserManagement() {
-  const users = useApiResource("/api/admin/users");
+  const [search, setSearch] = useState("");
+  const [active, setActive] = useState("all");
+  const path = useMemo(() => { const query = new URLSearchParams(); if (search) query.set("email", search); if (active !== "all") query.set("active", active); query.set("limit", "100"); return `/api/admin/users?${query}`; }, [search, active]);
+  const users = useApiResource(path);
   const scopes = useApiResource("/api/admin/scopes");
   const tenants = useApiResource("/api/admin/tenants");
   const groups = useApiResource("/api/admin/groups");
   const reload = () => Promise.all([users.reload(), scopes.reload(), tenants.reload(), groups.reload()]);
   const options = { scopes: recordArrayField(scopes.value, "scopes"), tenants: recordArrayField(tenants.value, "tenants"), groups: recordArrayField(groups.value, "groups") };
   const userItems = recordArrayField(users.value, "users");
-  return <section className="cf-ui-card"><h1>User access</h1><ResourceState loading={users.loading || scopes.loading || tenants.loading || groups.loading} error={users.error || scopes.error || tenants.error || groups.error} empty="No users registered.">{userItems.length ? <div className="cf-ui-table-wrap"><table><thead><tr><th>User</th><th>Tenants</th><th>Groups</th><th>Scopes</th><th>Save</th></tr></thead><tbody>{userItems.map((user) => <UserRow key={user.id} user={user} options={options} onSaved={reload} />)}</tbody></table></div> : null}</ResourceState></section>;
+  return <section className="cf-ui-card"><header><h1>Users</h1><p>Search and manage users without loading the entire directory into the page.</p></header><form className="cf-ui-filter-bar" onSubmit={(event) => event.preventDefault()}><input type="search" aria-label="Search users by email" placeholder="Search email address" value={search} onChange={(event) => setSearch(event.target.value)} /><select aria-label="Filter users by active status" value={active} onChange={(event) => setActive(event.target.value)}><option value="all">All statuses</option><option value="1">Active</option><option value="0">Inactive</option></select></form><ResourceState loading={users.loading || scopes.loading || tenants.loading || groups.loading} error={users.error || scopes.error || tenants.error || groups.error} empty="No users registered.">{userItems.length ? <div className="cf-ui-table-wrap"><table><thead><tr><th>User</th><th>Status</th><th>Tenants</th><th>Groups</th><th>Scopes</th><th>Save</th></tr></thead><tbody>{userItems.map((user) => <UserRow key={user.id} user={user} options={options} onSaved={reload} />)}</tbody></table></div> : null}</ResourceState></section>;
 }
 
 interface AccessOptions { scopes: UiRecord[]; tenants: UiRecord[]; groups: UiRecord[] }
@@ -23,7 +26,7 @@ function UserRow({ user, options, onSaved }: UserRowProps) {
   const [selectedGroups, setSelectedGroups] = useStateSet((user.groups || []).map((group) => group.group_name || group.name).filter((name): name is string => typeof name === "string"));
   const [saving, setSaving] = useState(false);
   const save = async () => { if (!user.id) return; setSaving(true); try { await apiJson(`/api/admin/users/${encodeURIComponent(user.id)}/access`, { scopes: [...selectedScopes], tenants: [...selectedTenants], groups: [...selectedGroups] }, { method: "PUT" }); await onSaved(); } finally { setSaving(false); } };
-  return <tr><th scope="row"><a href={`/admin/users/${encodeURIComponent(user.id || "")}`}>{user.display_name || user.email || "Unnamed user"}</a><small>{user.email || "No email"}</small></th><td><CheckList items={options.tenants} selected={selectedTenants} onChange={setSelectedTenants} valueKey="id" labelKey="name" /></td><td><CheckList items={options.groups} selected={selectedGroups} onChange={setSelectedGroups} valueKey="name" labelKey="display_name" /></td><td><CheckList items={options.scopes} selected={selectedScopes} onChange={setSelectedScopes} valueKey="name" labelKey="label" /></td><td><button type="button" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save"}</button></td></tr>;
+  return <tr><th scope="row"><a href={`/admin/users/${encodeURIComponent(user.id || "")}`}>{user.display_name || user.email || "Unnamed user"}</a><small>{user.email || "No email"}</small></th><td><span className={`cf-ui-active-pill ${user.active === false || user.active === 0 ? "inactive" : "active"}`}>{user.active === false || user.active === 0 ? "Inactive" : "Active"}</span></td><td><CheckList items={options.tenants} selected={selectedTenants} onChange={setSelectedTenants} valueKey="id" labelKey="name" /></td><td><CheckList items={options.groups} selected={selectedGroups} onChange={setSelectedGroups} valueKey="name" labelKey="display_name" /></td><td><CheckList items={options.scopes} selected={selectedScopes} onChange={setSelectedScopes} valueKey="name" labelKey="label" /></td><td><button type="button" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save"}</button></td></tr>;
 }
 
 type ChecklistKey = "id" | "name" | "display_name" | "label";

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const { EventHub } = await import("../src/core/events/hub.js");
+const { secureResponse } = await import("../src/core/security/index.js");
 
 class TestResponse {
   static json(value, init = {}) { return new TestResponse(JSON.stringify(value), { ...init, headers: { "Content-Type": "application/json", ...(init.headers || {}) } }); }
@@ -64,6 +65,7 @@ test("EventHub enforces upgrade grammar and handles WebSocket lifecycle callback
     const upgraded = await instance.fetch(new Request("https://hub.test/connect", { headers: { Upgrade: "websocket" } }));
     assert.equal(upgraded.status, 101);
     assert.equal(upgraded.webSocket, client);
+    assert.equal(secureResponse(upgraded).webSocket, client);
     assert.deepEqual(accepted, [server]);
     const messages = [];
     const socket = { send: (message) => messages.push(JSON.parse(message)) };

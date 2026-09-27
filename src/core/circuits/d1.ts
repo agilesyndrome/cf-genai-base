@@ -97,11 +97,15 @@ export async function writeCircuitBreakerState(
   env: D1Environment,
   id: string,
   state: string,
-  { who = "system:read" }: CircuitAccessOptions = {},
+  { who = "system:read", reason }: CircuitAccessOptions & { reason?: string } = {},
 ): Promise<void> {
-  await createD1(env, { who })
-    .prepare("UPDATE core_circuit_breakers SET state=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-    .bind(state, id)
+  const db = createD1(env, { who });
+  const current = await db.prepare("SELECT metadata_json FROM core_circuit_breakers WHERE id=?").bind(id).first<{ metadata_json?: string }>();
+  let metadata: Record<string, unknown> = {};
+  try { const parsed = JSON.parse(current?.metadata_json || "{}"); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed; } catch {}
+  if (reason) metadata.reason = reason;
+  await db.prepare("UPDATE core_circuit_breakers SET state=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(state, JSON.stringify(metadata), id)
     .run();
 }
 

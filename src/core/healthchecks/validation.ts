@@ -60,4 +60,3 @@ export function normalizeFeatureManifest(
     version: source.version ? String(source.version) : null,
   };
 }
-

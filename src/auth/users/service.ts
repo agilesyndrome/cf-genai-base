@@ -7,13 +7,14 @@ import {
   refreshUserIdentity,
   userHasScope,
 } from "./d1.js";
+import type { UserListOptions } from "./d1.js";
 import type { AuthorizationUser, AuthUser, UserServiceOptions } from "./model.js";
 import { normalizeUserIdentity, validateUserId } from "./validation.js";
 
 export async function ensureUser(
   env: unknown,
   value: unknown,
-  options: UserServiceOptions = {},
+  options: UserServiceOptions & UserListOptions = {},
 ): Promise<AuthUser | null> {
   if (!env || typeof env !== "object" || !Reflect.get(env, "DB")) return null;
   const identity = normalizeUserIdentity(value);
@@ -47,7 +48,7 @@ function isCanonicalAuthUser(
 
 export async function listAuthorizationUsers(
   env: unknown,
-  options: UserServiceOptions = {},
+  options: UserServiceOptions & UserListOptions = {},
 ): Promise<AuthorizationUser[]> {
   const { users, grants, memberships, groups } = await listUserRows(env, options);
   const scopesByUser = groupRows(grants, "user_id", (grant) => grant.scope_name);

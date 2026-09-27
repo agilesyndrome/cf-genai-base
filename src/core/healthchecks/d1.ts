@@ -14,7 +14,7 @@ export async function saveHealthcheck(
 ): Promise<void> {
   await createD1(env, { who })
     .prepare(
-      "INSERT INTO core_healthchecks (id,feature,component,display_name,state,metadata_json) VALUES (?,?,?,?,?,?) ON CONFLICT(feature,component) DO UPDATE SET display_name=excluded.display_name,metadata_json=excluded.metadata_json,updated_at=CURRENT_TIMESTAMP",
+      "INSERT INTO core_healthchecks (id,feature,component,display_name,state,metadata_json,checked_at) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(feature,component) DO UPDATE SET display_name=excluded.display_name,metadata_json=excluded.metadata_json,state=excluded.state,checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP",
     )
     .bind(
       id,
@@ -34,7 +34,7 @@ export async function writeHealthcheckState(
   { who = "system:read" }: HealthcheckAccessOptions = {},
 ): Promise<void> {
   await createD1(env, { who })
-    .prepare("UPDATE core_healthchecks SET state=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .prepare("UPDATE core_healthchecks SET state=?,checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(state, id)
     .run();
 }

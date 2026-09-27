@@ -16,6 +16,11 @@
       "import": "./dist/auth/index.js",
       "default": "./dist/auth/index.js"
     },
+    "./admin": {
+      "types": "./dist/admin/index.d.ts",
+      "import": "./dist/admin/index.js",
+      "default": "./dist/admin/index.js"
+    },
     "./data": {
       "types": "./dist/data/index.d.ts",
       "import": "./dist/data/index.js",
@@ -45,11 +50,6 @@
       "types": "./dist/domain/index.d.ts",
       "import": "./dist/domain/index.js",
       "default": "./dist/domain/index.js"
-    },
-    "./admin": {
-      "types": "./dist/admin/index.d.ts",
-      "import": "./dist/admin/index.js",
-      "default": "./dist/admin/index.js"
     },
     "./core": {
       "types": "./dist/core/index.d.ts",
@@ -117,6 +117,11 @@
       "import": "./dist/features/llm/index.js",
       "default": "./dist/features/llm/index.js"
     },
+    "./input": {
+      "types": "./dist/input.d.ts",
+      "import": "./dist/input.js",
+      "default": "./dist/input.js"
+    },
     "./features/messaging": {
       "types": "./dist/features/messaging/index.d.ts",
       "import": "./dist/features/messaging/index.js",
@@ -139,7 +144,8 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "publishConfig": {
     "access": "public",
@@ -161,21 +167,27 @@
   },
   "homepage": "https://github.com/agilesyndrome/cf-genai-base#readme",
   "scripts": {
+    "prepare": "node scripts/setup-git-hooks.mjs",
     "clean": "node scripts/clean-dist.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "check": "npm run typecheck",
+    "check": "npm run typecheck && npm run format:check && npm run lint:source",
+    "lint:source": "node scripts/lint-source.mjs",
+    "format": "node scripts/format-source.mjs --write",
+    "format:check": "node scripts/format-source.mjs && npm run lint:source -- --format-only",
     "compile": "tsc -p tsconfig.build.json",
     "assets": "node scripts/copy-build-assets.mjs",
     "prepack": "npm run clean && npm run compile && npm run assets",
     "verify:build": "node scripts/verify-build.mjs",
     "test": "node --import tsx --test tests/*.test.mjs",
     "test:integration": "node --import tsx --test examples/todo-list/test/integration.test.mjs",
-    "build": "npm run check && npm run prepack && npm test && npm run verify:build && npm pack --dry-run --ignore-scripts --loglevel=error"
+    "build": "npm run check && npm run prepack && npm test && npm run test:integration && npm run verify:build && npm pack --dry-run --ignore-scripts --loglevel=error"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260917.1",
     "@types/node": "^22.20.3",
     "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.1.9",
+    "react-dom": "^19.0.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },

@@ -1,4 +1,4 @@
-import { createD1 } from "../../core/database/index.js";
+import { createD1, hasD1Binding } from "../../core/database/index.js";
 import { AUTH_GRANT_TABLE, AUTH_SCOPE_TABLE } from "../constants.js";
 import type { AuthScope, UserGrant } from "./model.js";
 import { normalizeScopes } from "./validation.js";
@@ -8,16 +8,13 @@ export async function ensureScopes(
   scopes: readonly unknown[] = [],
   { who = "system:read" } = {},
 ): Promise<void> {
-  if (!(env as { DB?: unknown })?.DB) return;
+  if (!hasD1Binding(env)) return;
   const db = createD1(env, { who });
   for (const scope of normalizeScopes(scopes)) {
     await db.prepare(`
       INSERT INTO ${AUTH_SCOPE_TABLE} (name,label,description,system)
       VALUES (?,?,?,?)
-      ON CONFLICT(name) DO UPDATE SET
-        label=excluded.label,
-        description=excluded.description,
-        system=excluded.system
+      ON CONFLICT(name) DO NOTHING
     `).bind(scope.name, scope.label, scope.description, scope.system ? 1 : 0).run();
   }
 }

@@ -6,4 +6,6 @@ export * from "./admin-catalogs.js";
 export * from "./admin-access.js";
 export * from "./admin-details.js";
 export * from "./admin-dashboard.js";
+export * from "./admin-audit.js";
+export * from "./bootstrap.js";
 export * from "./types.js";

@@ -1,13 +1,13 @@
 import { adminBoundary } from "../admin/router.js";
-import type { AdminIdentity } from "../admin/types.js";
 import { createRouteDispatcher } from "../api/contracts.js";
 import { defineApp } from "../app.js";
-import { AUTH_DOMAINS, ensureScopes, SubscriptionError } from "../auth/index.js";
+import { AUTH_DOMAINS, SubscriptionError } from "../auth/index.js";
 import { requestActor, requestContext } from "../auth/identity/index.js";
 import { CORE_DOMAINS } from "../core/domains.js";
 import { auditedD1 } from "../core/database/index.js";
 import { createEventHandler, type AppEvent } from "../core/events/index.js";
 import { secureResponse } from "../core/security/index.js";
+import { SecurityRequestError } from "../core/security/index.js";
 import { requestDataContext } from "../data/context.js";
 import type { DataActorContext } from "../data/model.js";
 import { createDataReader } from "../data/reader.js";
@@ -17,7 +17,7 @@ import { resolveFeatures } from "../features/index.js";
 import { createRepositories } from "../repository.js";
 import type { RepositoryDefinitionInput } from "../repository/model.js";
 import { createRuntimeDomains } from "./domains.js";
-import { ensureFeatureManifests } from "./features.js";
+import { ensureFeatureManifests, refreshFeatureManifests } from "./features.js";
 import {
   createHonoRuntime,
   type RuntimeExecutionContext,
@@ -30,8 +30,8 @@ import type {
   RuntimeRequestEnvironment,
   RuntimeState,
 } from "./model.js";
+import { assertBoot } from "./health.js";
 
-const scopeManifestPromises = new WeakMap<D1Database, Map<string, Promise<unknown>>>();
 const removedWorkerOptions = [
   "features",
   "featureOptions",
@@ -72,6 +72,7 @@ export function createWorker<
     publicTenantId = null,
     health,
     boot,
+    requiredBindings = [],
     security = true,
     eventHubBinding = "EVENT_HUB",
   } = options;
@@ -87,7 +88,6 @@ export function createWorker<
   validateDomains(domains);
 
   const registeredApiRoutes = domains.flatMap((domain) => domain.routes);
-  const domainScopes = [...new Set(registeredApiRoutes.flatMap((route) => route.scopes))];
   const dispatchApiRoutes = registeredApiRoutes.length
     ? createRouteDispatcher(registeredApiRoutes)
     : null;
@@ -113,14 +113,14 @@ export function createWorker<
       state,
       { provider, authorize, features: activeFeatures },
     ),
-    ...(dispatchApiRoutes
-      ? [async (request: Request, env: RuntimeRequestEnvironment<Env>, ctx: RuntimeExecutionContext, next: (request?: Request) => Promise<Response>, state: State) =>
-        (await dispatchApiRoutes(request, env, ctx, state)) || next(request)]
-      : []),
     ...activeFeatures.flatMap((feature) =>
       feature.middleware ? [feature.middleware.bind(feature)] : []
     ),
     ...middleware,
+    ...(dispatchApiRoutes
+      ? [async (request: Request, env: RuntimeRequestEnvironment<Env>, ctx: RuntimeExecutionContext, next: (request?: Request) => Promise<Response>, state: State) =>
+        (await dispatchApiRoutes(request, env, ctx, state)) || next(request)]
+      : []),
   ];
   const runtime = createHonoRuntime<RuntimeRequestEnvironment<Env>, State>({
     layers,
@@ -130,16 +130,18 @@ export function createWorker<
   return {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
       try {
+        const url = new URL(request.url);
+        assertBoot(env, { bindings: requiredBindings });
+        const requiredEnvironment = activeFeatures.flatMap((feature) =>
+          feature.requiredEnvironment?.({ request, url }) || []
+        );
+        assertBoot(env, { required: [...new Set(requiredEnvironment)] });
         if (boot) await boot(env, { request, ctx });
         await Promise.all(domains.map((domain) => domain.initialize(env, { ctx })));
 
         const state = Object.assign(Object.create(null), {
           requestId: crypto.randomUUID(),
         }) as State;
-        const url = new URL(request.url);
-        if (env.DB && domainScopes.length && isAdminPath(url.pathname)) {
-          await ensureScopeManifest(env, domainScopes);
-        }
         if (provider?.getUser) {
           state.user = await Promise.resolve(provider.getUser(request, env)).catch(() => null);
         }
@@ -163,9 +165,9 @@ export function createWorker<
           eventHubBinding,
           DB: env.DB ? auditedD1(env.DB, requestActor(state)) : env.DB,
           data: state.data,
-          user: state.user || null,
-          authUser: state.authUser || null,
-          userId: state.authUser?.id || null,
+          get user() { return state.user || null; },
+          get authUser() { return state.authUser || state.user?.authUser || null; },
+          get userId() { return state.authUser?.id || state.user?.authUser?.id || null; },
           eventHandler: (event, eventEnv, eventCtx) =>
             eventHandler(event, eventEnv || requestEnv, eventCtx || ctx),
         };
@@ -197,11 +199,12 @@ export function createWorker<
         );
       } catch (error: unknown) {
         console.error("[worker] request failed", error);
-        const expected = error instanceof DataScopeError || error instanceof SubscriptionError;
-        const errorResponse = expected
+        const status = responseStatus(error);
+        const message = error instanceof Error ? error.message : "Unable to complete the request";
+        const errorResponse = status
           ? Response.json(
-            { error: error.message },
-            { status: 403, headers: { "Cache-Control": "no-store" } },
+            { error: message },
+            { status, headers: { "Cache-Control": "no-store" } },
           )
           : Response.json(
             { error: "Internal server error" },
@@ -213,8 +216,25 @@ export function createWorker<
         );
       }
     },
-    ...(scheduled ? { scheduled } : {}),
+    ...(scheduled ? {
+      scheduled: async (controller: ScheduledController, env: Env, ctx: ExecutionContext) => {
+        await scheduled(controller, env, ctx);
+        if (env.DB && hasOperationalManifest(activeFeatures)) {
+          await refreshFeatureManifests(env, activeFeatures, { who: "system:update" });
+        }
+      },
+    } : {}),
   };
+}
+
+function responseStatus(error: unknown): number | null {
+  if (error instanceof DataScopeError || error instanceof SubscriptionError) return 403;
+  if (error instanceof SecurityRequestError) return error.status;
+  if (error && typeof error === "object" && "status" in error) {
+    const status = Reflect.get(error, "status");
+    if (typeof status === "number" && status >= 400 && status < 500) return status;
+  }
+  return null;
 }
 
 function hasOperationalManifest(features: readonly RuntimeFeature[]): boolean {
@@ -232,31 +252,8 @@ function withRequestId(response: Response, requestId: string): Response {
     status: response.status,
     statusText: response.statusText,
     headers,
+    ...(response.status === 101 && response.webSocket ? { webSocket: response.webSocket } : {}),
   });
-}
-
-function isAdminPath(pathname: string): boolean {
-  return pathname === "/admin"
-    || pathname.startsWith("/admin/")
-    || pathname === "/api/admin"
-    || pathname.startsWith("/api/admin/");
-}
-
-function ensureScopeManifest(env: RuntimeBindings, scopes: readonly string[]): Promise<unknown> {
-  if (!env.DB) return Promise.resolve();
-  let registrations = scopeManifestPromises.get(env.DB);
-  if (!registrations) {
-    registrations = new Map();
-    scopeManifestPromises.set(env.DB, registrations);
-  }
-  const key = JSON.stringify(scopes);
-  let promise = registrations.get(key);
-  if (!promise) {
-    promise = ensureScopes(env, scopes, { who: "system:update" });
-    registrations.set(key, promise);
-    promise.catch(() => registrations?.delete(key));
-  }
-  return promise;
 }
 
 function validateDomains(domains: readonly AnyAppDomain[]): void {

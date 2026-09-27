@@ -1,0 +1,10 @@
+/** Parse persisted JSON while keeping malformed data at the caller's safe default. */
+export function parseJson<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value !== "string") return value as T;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}

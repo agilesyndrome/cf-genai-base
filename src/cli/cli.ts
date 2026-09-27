@@ -11,6 +11,7 @@ export const usage = `Usage:
   cf-genai check|test|build|ci|ci:lint
   cf-genai lint data-access
   cf-genai dev [options]
+  cf-genai storybook [options]
   cf-genai upgrade <base|auth> <latest|VERSION>
   cf-genai release [--confirm] [--first] [--add-trust] [--pre] [--dry-run] [--bypass-lint] [--type patch|minor|major] [--version MAJOR.MINOR]
   cf-genai release-status [--wait MINUTES] [--json]
@@ -101,7 +102,7 @@ export type CliCommandResult = Awaited<ProjectCommandResult> | SiteStatus | void
 export async function main(args: readonly string[] = process.argv.slice(2), env: NodeJS.ProcessEnv = process.env): Promise<CliCommandResult> {
   if (args[0] === "version") return runVersionCommand();
   const projectCommand = args[0];
-  if (projectCommand && ["check", "test", "build", "ci", "ci:lint", "lint", "dev", "upgrade", "release", "release-status"].includes(projectCommand)) {
+  if (projectCommand && ["check", "test", "build", "ci", "ci:lint", "lint", "dev", "storybook", "upgrade", "release", "release-status"].includes(projectCommand)) {
     const result = runProjectCommand(projectCommand, args.slice(1));
     if (result === null) throw new Error(`Unknown command.\n\n${usage}`);
     return result;

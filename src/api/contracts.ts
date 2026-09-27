@@ -86,6 +86,8 @@ function createRouteRouter<Env extends object, State extends IdentityState>(
   routes: readonly ApiRoute<Env, State>[],
 ) {
   const app = new Hono<{ Bindings: RouterBindings<Env, State> }>();
+  // Nested dispatch must not turn typed errors into Hono's generic 500 response.
+  app.onError((error) => { throw error; });
 
   for (const route of routes) {
     const methods = (Array.isArray(route.method) ? route.method : [route.method])

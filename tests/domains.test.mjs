@@ -42,7 +42,7 @@ test("AppDomain keeps model-adjacent capabilities in one manifest", () => {
 test("custom domain policy participates in the shared Hono dispatcher", async () => {
   class PolicyDomain extends AppDomain {
     constructor() {
-      super({ name: "example.policy", basePath: "/api/policy" });
+      super({ name: "example.policy", basePath: "/api/policy", auth: "public" });
       this.route({
         method: "GET",
         authorize: ({ request }) => request.headers.get("X-Allow") === "yes",

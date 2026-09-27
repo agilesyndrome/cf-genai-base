@@ -49,18 +49,6 @@ export class ApiError extends Error {
   }
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.values(value).every(isJsonValue);
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null) return true;
-  if (["string", "number", "boolean"].includes(typeof value)) return true;
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
-
 export function isJsonErrorEnvelope(value: unknown): value is JsonErrorEnvelope {
   return isJsonObject(value) && typeof value.error === "string" && value.error.length > 0;
 }
@@ -143,3 +131,6 @@ export function apiJson<Result, Payload>(
     body: JSON.stringify(payload),
   });
 }
+import { isJsonObject, isJsonValue } from "../input.js";
+
+export { isJsonObject, isJsonValue } from "../input.js";

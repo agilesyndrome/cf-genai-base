@@ -53,6 +53,8 @@ export interface AuditLogInput {
   details?: unknown;
 }
 
+export interface AuditLogRecord { id: string; who: string; operation: string; resource: string; details: Record<string, unknown>; created_at: string }
+
 interface EventHubNamespace {
   idFromName(name: string): DurableObjectId;
   get(id: DurableObjectId): { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> };
@@ -140,6 +142,11 @@ export function eventLog(level: string, event: string, details: unknown = {}): v
 
 export function auditLog({ who = "system", operation, resource, details = {} }: AuditLogInput): void {
   console.info(`[AuditLog] ${who}:${operation} ${resource}`, redactLogDetails(details));
+}
+
+export function parseAuditDetails(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
 }
 
 function isEventLogLevel(value: string): value is EventLogLevel {

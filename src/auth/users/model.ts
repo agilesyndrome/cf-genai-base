@@ -5,6 +5,7 @@ export interface AuthUser extends CanonicalAuthUser {
   subject: string;
   created_at?: string;
   updated_at?: string;
+  active?: boolean | number;
 }
 
 export interface AuthorizationUser extends AuthUser {

@@ -24,6 +24,7 @@ export interface AppDomainOptions {
  */
 export abstract class AppDomain<Model = unknown, Env = unknown, State = unknown> {
   readonly name: string;
+  readonly active: boolean;
   readonly basePath: string;
   readonly dataResources: readonly DataResourceInput[];
   readonly repositories: readonly RepositoryDefinitionInput[];
@@ -44,11 +45,12 @@ export abstract class AppDomain<Model = unknown, Env = unknown, State = unknown>
       throw new TypeError("Domain basePath must be absolute.");
     }
     this.name = options.name;
+    this.active = true;
     this.basePath = options.basePath === "/" ? "/" : options.basePath.replace(/\/$/, "");
     this.dataResources = [...(options.dataResources ?? [])];
     this.repositories = [...(options.repositories ?? [])];
     this.#defaults = {
-      auth: options.auth ?? "public",
+      auth: options.auth ?? "user",
       scopes: asList(options.scopes),
       csrf: options.csrf ?? false,
     };

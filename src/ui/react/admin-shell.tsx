@@ -10,13 +10,16 @@ export const ADMIN_SYSTEM_LINKS: readonly AdminLinkItem[] = Object.freeze([
   { label: "Subscriptions", href: "/admin/subscriptions", key: "subscriptions" },
   { label: "Jobs", href: "/admin/jobs", key: "jobs" },
   { label: "Features", href: "/admin/features", key: "features" },
+  { label: "Audit log", href: "/admin/audit-log", key: "audit-log" },
   { label: "Health checks", href: "/admin/healthchecks", key: "healthchecks" },
   { label: "Circuit breakers", href: "/admin/circuit-breakers", key: "circuit-breakers" },
 ]);
+export const ADMIN_AUDIT_LINK = ADMIN_SYSTEM_LINKS.find((link) => link.key === "audit-log")!;
 
 export interface AdminShellProps { children?: ReactNode; active?: string; applicationLinks?: readonly AdminLinkItem[]; systemLinks?: readonly AdminLinkItem[]; title?: string; onNavigate?: (key: string, link?: AdminLinkItem) => void }
 export function AdminShell({ children, active = "", applicationLinks = [], systemLinks = ADMIN_SYSTEM_LINKS, title = "Administration", onNavigate }: AdminShellProps) {
-  return <div className="cf-ui-admin-shell"><aside className="cf-ui-admin-nav"><p className="cf-ui-admin-title">{title}</p><nav aria-label="Administration">{applicationLinks.length ? <section><p className="cf-ui-nav-label">Application</p>{applicationLinks.map((link) => <AdminLink key={link.key || link.href} link={link} active={active} onNavigate={onNavigate} />)}</section> : null}<section><p className="cf-ui-nav-label">System</p>{systemLinks.map((link) => <AdminLink key={link.key || link.href} link={link} active={active} onNavigate={onNavigate} />)}</section></nav></aside><main className="cf-ui-admin-content">{children}</main></div>;
+  const visibleSystemLinks = systemLinks.filter((link) => !["healthchecks", "circuit-breakers"].includes(link.key));
+  return <div className="cf-ui-admin-shell"><aside className="cf-ui-admin-nav"><p className="cf-ui-admin-title">{title}</p><nav aria-label="Administration">{applicationLinks.length ? <section><p className="cf-ui-nav-label">Application</p>{applicationLinks.map((link) => <AdminLink key={link.key || link.href} link={link} active={active} onNavigate={onNavigate} />)}</section> : null}<section><p className="cf-ui-nav-label">System</p>{visibleSystemLinks.map((link) => <AdminLink key={link.key || link.href} link={link} active={active} onNavigate={onNavigate} />)}</section></nav></aside><main className="cf-ui-admin-content">{children}</main></div>;
 }
 
 export interface AdminLinkProps { link: AdminLinkItem; active: string; onNavigate?: (key: string, link?: AdminLinkItem) => void }

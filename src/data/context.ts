@@ -34,7 +34,7 @@ export async function requestDataContext(
     || (state.user
       ? await ensureUser(env, state.user, { who: `user:${state.user.sub || "unknown"}` })
       : null);
-  const system = Boolean(state.user?.auth_strategy === "http_basic" || authUser?.is_admin);
+  const actingSystem = Boolean(state.user?.auth_strategy === "http_basic" || authUser?.is_admin);
   if (!authUser) {
     return {
       userId: null,
@@ -48,12 +48,19 @@ export async function requestDataContext(
 
   const token = request?.headers.get("X-CF-GenAI-Impersonation")
     || readCookie(request, "__Host-cfgenai_impersonation");
-  const impersonation = system ? await verifyImpersonationToken(token, env) : null;
+  const impersonation = actingSystem ? await verifyImpersonationToken(token, env) : null;
+  let system = actingSystem;
   if (impersonation) {
+    const currentActorId = authUser?.id || (state.user?.auth_strategy === "http_basic" ? "admin" : null);
+    if (!currentActorId || impersonation.adminUserId !== currentActorId) {
+      throw new Error("Impersonation token does not belong to the current administrator");
+    }
     const targetUser = await getAuthorizationUser(env, impersonation.targetUserId, {
       who: `user:${impersonation.adminUserId}`,
     });
-    if (targetUser) authUser = targetUser;
+    if (!targetUser) throw new Error("Impersonation target is unavailable");
+    authUser = targetUser;
+    system = false;
   }
 
   const who = `user:${authUser.id}`;

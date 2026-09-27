@@ -8,12 +8,17 @@ export interface GroupDatabaseOptions {
 type Row = Record<string, unknown>;
 
 export async function listGroupRows(env: unknown, { who = "system:read" }: GroupDatabaseOptions = {}): Promise<AuthGroup[]> {
-  const result = await createD1(env, { who }).prepare("SELECT name,display_name,description,created_at,updated_at FROM auth_groups ORDER BY display_name COLLATE NOCASE").all() as { results?: AuthGroup[] };
-  return result.results ?? [];
+  const result = await createD1(env, { who }).prepare("SELECT name,display_name,description,active,created_at,updated_at FROM auth_groups ORDER BY display_name COLLATE NOCASE").all() as { results?: AuthGroup[] };
+  const groups = result.results ?? [];
+  if (!groups.length) return groups;
+  const scopes = await createD1(env, { who }).prepare("SELECT group_name,scope_name FROM auth_group_scopes ORDER BY group_name,scope_name").all<{ group_name: string; scope_name: string }>();
+  const byGroup = new Map<string, string[]>();
+  for (const row of scopes.results ?? []) byGroup.set(row.group_name, [...(byGroup.get(row.group_name) ?? []), row.scope_name]);
+  return groups.map((group) => ({ ...group, scopes: byGroup.get(group.name) ?? [] }));
 }
 
 export async function getGroupRow(env: unknown, name: string, { who = "system:read" }: GroupDatabaseOptions = {}): Promise<AuthGroup | null> {
-  return await createD1(env, { who }).prepare("SELECT name,display_name,description,created_at,updated_at FROM auth_groups WHERE name=?").bind(name).first() as AuthGroup | null;
+  return await createD1(env, { who }).prepare("SELECT name,display_name,description,active,created_at,updated_at FROM auth_groups WHERE name=?").bind(name).first() as AuthGroup | null;
 }
 
 export async function insertGroupRow(env: unknown, input: NewAuthGroup, { who = "system:update" }: GroupDatabaseOptions = {}): Promise<AuthGroup | null> {
@@ -53,4 +58,19 @@ export async function replaceUserGroupsRows(env: unknown, userId: string, groups
     ...[...new Set(groups)].map((group) => db.prepare("INSERT INTO auth_user_groups (user_id,group_name,granted_by) VALUES (?,?,?)").bind(userId, group, grantedBy ?? null)),
   ]);
   return listUserGroupsRows(env, userId, { who });
+}
+
+export async function replaceGroupScopesRows(env: unknown, groupName: string, scopes: readonly string[], grantedBy: string | undefined, { who = "system:update" }: GroupDatabaseOptions = {}): Promise<string[]> {
+  const db = createD1(env, { who });
+  const unique = [...new Set(scopes)];
+  if (unique.length) {
+    const placeholders = unique.map(() => "?").join(",");
+    const result = await db.prepare(`SELECT name FROM auth_scopes WHERE name IN (${placeholders})`).bind(...unique).all<{ name: string }>();
+    if ((result.results ?? []).length !== unique.length) throw new TypeError("One or more scopes do not exist.");
+  }
+  await db.batch([
+    db.prepare("DELETE FROM auth_group_scopes WHERE group_name=?").bind(groupName),
+    ...unique.map((scope) => db.prepare("INSERT INTO auth_group_scopes (group_name,scope_name,granted_by) VALUES (?,?,?)").bind(groupName, scope, grantedBy ?? null)),
+  ]);
+  return unique;
 }

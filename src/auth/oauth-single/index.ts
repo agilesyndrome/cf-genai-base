@@ -186,6 +186,14 @@ export function createAuth(options: OAuthOptions = {}) {
     packageName: PACKAGE_NAME,
     version: VERSION,
     strategy: OAUTH_SINGLE,
+    requiredEnvironment: ({ request }: { request: Request; url: URL }) => {
+      const path = new URL(request.url).pathname;
+      const protectedRequest = protectedPath(path)
+        && !publicPaths.some((publicPath) => publicPath === "/" ? path === "/" : path.startsWith(publicPath));
+      return protectedRequest
+        ? ["OIDC_DISCOVERY_URL", "OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "AUTH_SESSION_SECRET"]
+        : [];
+    },
     domains: [domain, ...(options.domains || [])],
     healthchecks: options.healthchecks || [],
     circuitBreakers: options.circuitBreakers || [],

@@ -62,6 +62,22 @@ test("public tenant reads require an explicitly public resource and tenant", asy
   assert.deepEqual(await privateReader.tenant.list("recipes"), []);
 });
 
+test("public tenant access is read-only for every write method", async () => {
+  for (const publicRead of [true, { column: "published", value: 1 }]) {
+    const db = database();
+    const reader = createDataReader({ DB: db }, {
+      resources: [{ ...recipes, columns: [...recipes.columns, "published"], publicRead }],
+      context: { tenantId: "tenant-a", public: true, system: false },
+    });
+    await assert.rejects(() => reader.tenant.insert("recipes", { title: "Nope" }), DataScopeError);
+    await assert.rejects(() => reader.tenant.update("recipes", "recipe-1", { title: "Nope" }), DataScopeError);
+    await assert.rejects(() => reader.tenant.updateWhere("recipes", { id: "recipe-1" }, { title: "Nope" }), DataScopeError);
+    await assert.rejects(() => reader.tenant.delete("recipes", "recipe-1"), DataScopeError);
+    await assert.rejects(() => reader.tenant.deleteWhere("recipes", { id: "recipe-1" }), DataScopeError);
+    assert.equal(db.calls.length, 0);
+  }
+});
+
 test("public resources are readable through the system public tenant", async () => {
   const db = database();
   const reader = createDataReader({ DB: db }, { resources: [{ name: "adventures", table: "adventures", scope: "public", columns: ["id", "tenant_id", "name"], readableColumns: ["id", "tenant_id", "name"] }], context: { userId: "user-1", publicTenantId: "gta-public", tenantId: "private-tenant", system: false } });

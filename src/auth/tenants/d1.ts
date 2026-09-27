@@ -6,7 +6,7 @@ export interface TenantDatabaseOptions {
 }
 
 export async function listTenantRows(env: unknown, { who = "system:read" }: TenantDatabaseOptions = {}): Promise<AuthTenant[]> {
-  const result = await createD1(env, { who }).prepare("SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(ut.user_id) AS user_count FROM auth_tenants t LEFT JOIN auth_user_tenants ut ON ut.tenant_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE").all() as { results?: AuthTenant[] };
+  const result = await createD1(env, { who }).prepare("SELECT t.id,t.name,t.active,t.created_at,t.updated_at,COUNT(ut.user_id) AS user_count FROM auth_tenants t LEFT JOIN auth_user_tenants ut ON ut.tenant_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE").all() as { results?: AuthTenant[] };
   return result.results ?? [];
 }
 
@@ -16,7 +16,7 @@ export async function listUserTenantRows(env: unknown, userId: string, { who = "
 }
 
 export async function getTenantRow(env: unknown, tenantId: string, { who = "system:read" }: TenantDatabaseOptions = {}): Promise<AuthTenant | null> {
-  return await createD1(env, { who }).prepare("SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(ut.user_id) AS user_count FROM auth_tenants t LEFT JOIN auth_user_tenants ut ON ut.tenant_id=t.id WHERE t.id=? GROUP BY t.id").bind(tenantId).first() as AuthTenant | null;
+  return await createD1(env, { who }).prepare("SELECT t.id,t.name,t.active,t.created_at,t.updated_at,COUNT(ut.user_id) AS user_count FROM auth_tenants t LEFT JOIN auth_user_tenants ut ON ut.tenant_id=t.id WHERE t.id=? GROUP BY t.id").bind(tenantId).first() as AuthTenant | null;
 }
 
 export async function listTenantUserRows(env: unknown, tenantId: string, { who = "system:read" }: TenantDatabaseOptions = {}): Promise<TenantUser[]> {
