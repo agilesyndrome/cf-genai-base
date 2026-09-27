@@ -178,6 +178,47 @@ Use the selected D1 target (local by default) to inspect and update users:
 
 ## Scoped data access
 
+### Versioned data objects
+
+Sites can opt a tenant-owned object into immutable content revisions and explicit
+publication. Apply `migrations/0011_versioned_objects.sql` through the site's
+normal D1 migration process, then register a managed domain:
+
+```ts
+import { createWorker, defineApp, VersionedObjectDomain } from "@agilesyndrome/cf-genai-base";
+
+const recipes = new VersionedObjectDomain({
+  name: "recipes",
+  basePath: "/api/recipes",
+  fields: { title: "string", servings: "number", vegetarian: "boolean" },
+  publicRead: true,
+  writeScope: "recipes:write",
+  publishScope: "recipes:publish",
+});
+
+export default createWorker({
+  app: defineApp({ name: "cookbook", domains: [recipes] }),
+  publicTenantId: "easley-family",
+  fetch: () => new Response("Not found", { status: 404 }),
+});
+```
+
+The domain provides `GET|POST /api/recipes`, `GET|PUT /api/recipes/:id`,
+`GET /api/recipes/:id/draft`, `GET /api/recipes/:id/versions`, and
+`POST|DELETE /api/recipes/:id/publish`. Create accepts `{ "content": {...} }`;
+save accepts `{ "expectedRevision": 1, "content": {...} }`; publish accepts
+`{ "revision": 1 }`. Public reads see only the chosen published revision, while
+signed-in tenant members can inspect the latest draft and history. Repeated saves
+require the current revision and return 409 on conflict. All writes are tenant
+scoped and use the managed service; do not register the shared object tables as
+generic writable resources. This first capability supports scalar fields and
+tenant-owned objects. Relationships and other mix-ins are separate future work.
+
+For anonymous reads, configure `publicTenantId` and `publicRead: true`. Grant
+the declared write and publish scopes through the normal authorization system.
+The domain itself supplies routes and validation; sites do not need to write
+their own SQL or CRUD handlers for these objects.
+
 Domains may register D1 resources with `dataResources` and receive the
 scoped reader on the request state as `state.data`. Resources declare `user`,
 `tenant`, `public`, or `system` scope, their physical table, and an explicit column

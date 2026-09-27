@@ -81,6 +81,12 @@ D1 migrations are committed with the site, applied by Wrangler, and are the
 source of truth for schema changes. R2 stores binary data; metadata and access
 control remain in D1.
 
+`migrations/0011_versioned_objects.sql` adds opt-in tenant-owned object records
+and immutable snapshots. `VersionedObjectDomain` owns the managed write API and
+publication pointer. Sites using it must not expose its shared tables as generic
+writable resources or mutate them through direct D1 calls. The object definition
+declares fields, routes, public reads, and optional write/publish scopes.
+
 ## User and role contract
 
 Auth returns a stable `sub`, normalized lowercase `email`, and display `name`.
