@@ -1,9 +1,10 @@
 import { AppDomain, type DomainRequestContext } from "../domain/index.js";
+import { ObjectEngagementStore, type EngagementInput } from "./engagement.js";
 import type { DataActorContext } from "./model.js";
 
 export type ObjectFieldType = "string" | "number" | "boolean";
 export type ObjectContent = Record<string, string | number | boolean>;
-export interface VersionedObjectInput {
+export interface VersionedObjectInput extends EngagementInput {
   name: string;
   basePath: string;
   fields: Record<string, ObjectFieldType>;
@@ -185,11 +186,36 @@ async function respond(action: () => Promise<unknown>, status = 200): Promise<Re
 /** Register the conventional handlers without giving callers a bypass around the model service. */
 export class VersionedObjectDomain extends AppDomain {
   readonly store: VersionedObjectStore;
+  readonly engagement: ObjectEngagementStore | null;
   constructor(input: VersionedObjectInput) {
     const store = new VersionedObjectStore(input);
+    const engagement = input.passport || input.ratings ? new ObjectEngagementStore(store, input) : null;
     super({ name: `objects.${store.definition.name}`, basePath: input.basePath, auth: "user", csrf: true });
     this.store = store;
+    this.engagement = engagement;
     const actor = (context: Context) => context.state.data.context();
+    const offset = (context: Context) => Number(new URL(context.request.url).searchParams.get("offset") || 0);
+    if (engagement) {
+      this.route({ method: "GET", path: "/passport", handler: (c: Context) => respond(async () =>
+        ({ stamps: await engagement.myPassports(c.env, await actor(c), offset(c)) })) });
+      this.route({ method: "PUT", path: "/:id/passport", handler: (c: Context) => respond(async () =>
+        engagement.stamp(c.env, await actor(c), c.params.id, (await body(c.request)).visibility)) });
+      this.route({ method: "GET", path: "/:id/passport", handler: (c: Context) => respond(async () => {
+        const result = await engagement.mine(c.env, await actor(c), c.params.id, offset(c));
+        if (!result) throw new ObjectAccessError("Stamp not found", 404);
+        return result;
+      }) });
+      this.route({ method: "GET", path: "/:id/passports", auth: "public", handler: (c: Context) => respond(async () =>
+        ({ stamps: await engagement.visible(c.env, await actor(c), c.params.id, "passports", offset(c)) })) });
+      if (engagement.ratings) {
+        this.route({ method: "POST", path: "/:id/ratings", handler: (c: Context) => respond(async () => {
+          const input = await body(c.request);
+          return engagement.rate(c.env, await actor(c), c.params.id, input.value, input.visibility);
+        }, 201) });
+        this.route({ method: "GET", path: "/:id/ratings", auth: "public", handler: (c: Context) => respond(async () =>
+          ({ ratings: await engagement.visible(c.env, await actor(c), c.params.id, "ratings", offset(c)) })) });
+      }
+    }
     this.route({ method: "GET", auth: "public", handler: (c: Context) => respond(async () =>
       ({ records: await store.list(c.env, await actor(c)) })) });
     this.route({ method: "POST", handler: (c: Context) => respond(async () => store.create(c.env, await actor(c), (await body(c.request)).content), 201) });

@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSqliteD1 } from "./sqlite-d1.mjs";
 import { VersionedObjectDomain, VersionedObjectStore, ObjectAccessError } from "../src/data/objects.js";
+import { ObjectEngagementStore } from "../src/data/engagement.js";
 
-const migrations = ["0001_authorization", "0004_tenants", "0011_versioned_objects"]
+const migrations = ["0001_authorization", "0004_tenants", "0011_versioned_objects", "0012_object_engagement"]
   .map((name) => new URL(`../migrations/${name}.sql`, import.meta.url));
 
 function setup() {
   const DB = createSqliteD1({ migrations });
-  for (const [id, tenant] of [["alice", "easley-family"], ["bob", "other"]]) {
+  for (const [id, tenant] of [["alice", "easley-family"], ["charlie", "easley-family"], ["bob", "other"]]) {
     DB.prepare("INSERT INTO auth_users (id, provider, subject) VALUES (?, 'test', ?)").bind(id, id).run();
     if (tenant === "other") DB.prepare("INSERT INTO auth_tenants (id, name) VALUES ('other', 'Other')").run();
   }
@@ -79,4 +80,61 @@ test("generated handlers return published content and reject stale saves", async
   const stale = await call("PUT", "/api/recipes/:id", { expectedRevision: 0, content: { title: "No" } });
   assert.equal(stale.status, 400);
   DB.close();
+});
+
+test("ratings create one passport and retain multiple ratings against published revisions", async () => {
+  const { DB, store, alice } = setup();
+  const engagement = new ObjectEngagementStore(store, {
+    passport: { maximum: "public", default: "private", userChoice: true },
+    ratings: { maximum: "public", default: "private", userChoice: true, scale: ["yuck", "meh", "loved", "omg yum yum"] },
+  });
+  const record = await store.create({ DB }, alice, { title: "Soup" });
+  await assert.rejects(engagement.rate({ DB }, alice, record.id, "meh"), (error) => error.status === 404);
+  await store.publish({ DB }, alice, record.id, 1);
+  await engagement.rate({ DB }, alice, record.id, "meh", "tenant");
+  await store.save({ DB }, alice, record.id, 1, { title: "Better soup" });
+  await store.publish({ DB }, alice, record.id, 2);
+  await engagement.rate({ DB }, alice, record.id, "omg yum yum", "public");
+  assert.deepEqual((await engagement.mine({ DB }, alice, record.id)).ratings.map((rating) => rating.revision).sort(), [1, 2]);
+  assert.equal((await engagement.myPassports({ DB }, alice)).length, 1);
+  assert.equal((await engagement.mine({ DB }, alice, record.id)).visibility, "private");
+  const member = { userId: "charlie", tenantId: "easley-family" };
+  const anonymous = { publicTenantId: "easley-family" };
+  assert.equal((await engagement.visible({ DB }, member, record.id, "ratings")).length, 2);
+  assert.equal((await engagement.visible({ DB }, member, record.id, "ratings", 1)).length, 1);
+  await assert.rejects(engagement.visible({ DB }, member, record.id, "ratings", -1), /Invalid page offset/);
+  assert.equal((await engagement.visible({ DB }, anonymous, record.id, "ratings")).length, 1);
+  assert.equal((await engagement.visible({ DB }, anonymous, record.id, "passports")).length, 0);
+  await engagement.stamp({ DB }, alice, record.id, "public");
+  assert.equal((await engagement.visible({ DB }, anonymous, record.id, "passports")).length, 1);
+  assert.equal((await engagement.mine({ DB }, alice, record.id)).ratings.length, 2);
+  DB.close();
+});
+
+test("engagement enforces scale, site ceiling, owner choice, and tenant boundary", async () => {
+  const { DB, store, alice, bob } = setup();
+  const engagement = new ObjectEngagementStore(store, {
+    passport: { maximum: "tenant", default: "private", userChoice: true },
+    ratings: { maximum: "tenant", default: "tenant", scale: ["yuck", "loved"] },
+  });
+  const record = await store.create({ DB }, alice, { title: "Soup" });
+  await store.publish({ DB }, alice, record.id, 1);
+  await assert.rejects(engagement.rate({ DB }, alice, record.id, "meh"), /outside the rating scale/);
+  await assert.rejects(engagement.rate({ DB }, alice, record.id, "loved", "public"), /Visibility is not permitted/);
+  await assert.rejects(engagement.rate({ DB }, alice, record.id, "loved", "private"), /Visibility is not permitted/);
+  await assert.rejects(engagement.stamp({ DB }, alice, record.id, "public"), /Visibility is not permitted/);
+  await assert.rejects(engagement.rate({ DB }, bob, record.id, "loved"), (error) => error.status === 404);
+  assert.equal(await engagement.mine({ DB }, bob, record.id), null);
+  await engagement.rate({ DB }, alice, record.id, "loved");
+  assert.equal((await engagement.visible({ DB }, { publicTenantId: "easley-family" }, record.id, "ratings")).length, 0);
+  assert.throws(() => new ObjectEngagementStore(store, { ratings: { maximum: "public", scale: ["same", "same"] } }), /distinct/);
+  DB.close();
+});
+
+test("ratings alone enable private passports and only register the requested routes", async () => {
+  const domain = new VersionedObjectDomain({ name: "recipes", basePath: "/api/recipes", fields: { title: "string" },
+    ratings: { maximum: "private", scale: ["yuck", "loved"] } });
+  assert.equal(domain.engagement.passportEnabled, true);
+  assert.equal(domain.routes.some((route) => route.path === "/api/recipes/:id/ratings" && route.method === "POST"), true);
+  assert.equal(domain.routes.some((route) => route.path === "/api/recipes/:id/passport" && route.method === "PUT"), true);
 });
