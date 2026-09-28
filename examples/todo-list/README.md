@@ -4,15 +4,15 @@ This is a deliberately small, complete site showing the `-base` contracts in a r
 
 - two tenants (`northwind` and `contoso`)
 - four Basic Auth users (two per tenant; password `todo-demo`)
-- tenant-scoped D1 data with read/create/update/delete capabilities
+- tenant-scoped records with a three-state workflow
 - completed items remain visible and can be toggled
 - a browser UI plus JSON API
 - an optional `TodoAdmin` React entry point for the shared AdminDashboard
 
 From this directory, install the repository dependencies and set a real D1 id in
-`wrangler.jsonc`. Apply the ten package migrations first (from the repository's
+`wrangler.jsonc`. Apply the package migrations, including `migrations/0011_records.sql`, first (from the repository's
 `migrations/` directory), then execute this example's
-`migrations/0009_todo_list.sql` once against the same database (for local dev,
+`migrations/0012_records_basic.sql` and this example's `migrations/0009_todo_list.sql` once against the same database (for local dev,
 `npx wrangler d1 execute cf-genai-todo-list --local --file migrations/0009_todo_list.sql`),
 then run `npx wrangler dev`.
 

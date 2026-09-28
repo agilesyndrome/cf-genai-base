@@ -62,6 +62,8 @@ export interface RuntimeState extends AdminRequestState {
   data?: DataReader;
   context?: RuntimeRequestContext;
   tenantId?: string;
+  readOnlyState?: RuntimeState;
+  readOnlyEnv?: RuntimeRequestEnvironment;
 }
 
 export type RuntimeEventEmitter = (

@@ -4,6 +4,8 @@ import { createRepositories, defineRepository } from "../src/repository.js";
 import { defineApp } from "../src/app.js";
 import { AppDomain, createWorker, defineFeature, resolveFeatures } from "../src/index.js";
 import { defineRoute, dispatchRoutes } from "../src/api/contracts.js";
+import { createReadOnlyDataReader } from "../src/data/reader.js";
+import { readOnlyD1 } from "../src/core/database/index.js";
 
 test("API route contracts enforce identity, scope, and origin policy", async () => {
   const route = defineRoute({ method: "POST", path: "/api/items", auth: "user", scope: "items:write", csrf: true, handler: () => Response.json({ ok: true }) });
@@ -21,9 +23,9 @@ test("repositories provide named relations over scoped data readers", async () =
   assert.equal(calls[0].options.where.recipe_id, "r1");
 });
 
-test("app registration supports API-only workers", () => {
-  assert.deepEqual(defineApp({ name: "ingest", ui: false, api: true, admin: false }), { name: "ingest", ui: false, api: true, admin: false, features: [], domains: [] });
-  assert.throws(() => defineApp({ name: "empty", ui: false, api: false }), /ui or api/);
+test("app registration supports empty and read-only workers", () => {
+  assert.deepEqual(defineApp({ name: "ingest" }), { name: "ingest", features: [], domains: [], readOnlyDomains: [], records: [] });
+  assert.deepEqual(defineApp(), { name: "worker", features: [], domains: [], readOnlyDomains: [], records: [] });
 });
 
 test("application manifests isolate and freeze SDK registrations", () => {
@@ -49,6 +51,63 @@ test("AppDomain registers downstream routes without imposing admin access", asyn
   const response = await worker.fetch(new Request("https://example.test/api/recipes/soup"), {}, {});
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { id: "soup" });
+});
+
+test("read-only domains reject mutating routes at worker construction", () => {
+  class PublishedDomain extends AppDomain {
+    constructor() {
+      super({ name: "published", basePath: "/api/published", auth: "public" });
+      this.route({ method: "GET", handler: () => new Response("ok") });
+      this.route({ method: "POST", handler: () => new Response("no") });
+    }
+  }
+  assert.throws(
+    () => createWorker({ app: defineApp({ readOnlyDomains: [new PublishedDomain()] }), fetch: () => new Response("app") }),
+    /Read-only domain published cannot register POST routes/,
+  );
+});
+
+test("read-only domains receive read-only data and database contexts", async () => {
+  const db = {
+    prepare() { return { bind() { return this; }, all: async () => ({ results: [] }) }; },
+    batch() { throw new Error("batch should not be called"); },
+  };
+  class PublishedDomain extends AppDomain {
+    constructor() {
+      super({ name: "published-records", basePath: "/api/published-records", auth: "public", dataResources: [{
+        name: "published", table: "published", scope: "public", columns: ["id", "tenant_id", "title"],
+        readableColumns: ["id", "title"], writableColumns: ["title"],
+      }] });
+      this.route({ method: "GET", handler: async ({ env, state }) => {
+        let dataBlocked = false;
+        let sqlBlocked = false;
+        try { await state.data.tenant.insert("published", { id: "one", title: "No" }); } catch { dataBlocked = true; }
+        try { env.DB.prepare("INSERT INTO published (id) VALUES (?)"); } catch { sqlBlocked = true; }
+        return Response.json({ dataBlocked, sqlBlocked });
+      } });
+    }
+  }
+  const worker = createWorker({
+    app: defineApp({ readOnlyDomains: [new PublishedDomain()] }),
+    fetch: () => new Response("app"),
+  });
+  const response = await worker.fetch(new Request("https://example.test/api/published-records"), { DB: db }, {});
+  assert.deepEqual(await response.json(), { dataBlocked: true, sqlBlocked: true });
+});
+
+test("read-only data facades preserve reads and reject all data writes", async () => {
+  const calls = [];
+  const reader = {
+    user: { context: async () => ({}), list: async () => [{ id: "one" }], page: async () => ({ rows: [], nextCursor: null }), count: async () => 1, get: async () => null, insert: async () => calls.push("insert"), update: async () => calls.push("update"), updateWhere: async () => calls.push("updateWhere"), delete: async () => calls.push("delete"), deleteWhere: async () => calls.push("deleteWhere") },
+    tenant: {}, public: {}, system: {}, context: async () => ({}), resources: [],
+  };
+  const readOnly = createReadOnlyDataReader(reader);
+  assert.deepEqual(await readOnly.user.list("items"), [{ id: "one" }]);
+  for (const operation of ["insert", "update", "updateWhere", "delete", "deleteWhere"]) {
+    await assert.rejects(readOnly.user[operation]("items"), /read-only/);
+  }
+  assert.deepEqual(calls, []);
+  assert.throws(() => readOnlyD1({ prepare: () => ({}) }).prepare("UPDATE items SET title=?"), /Read-only/);
 });
 
 test("apps activate only the built-in features they request", async () => {

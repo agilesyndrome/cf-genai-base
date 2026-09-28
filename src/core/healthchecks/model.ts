@@ -54,7 +54,7 @@ export interface FeatureManifest {
 export interface HealthcheckEnvironment {
   DB?: D1Database;
   features?: readonly FeatureManifest[];
-  app?: { name: string; ui: boolean; api: boolean; admin: boolean; domains: readonly { name: string }[] };
+  app?: { name: string; domains: readonly { name: string }[]; readOnlyDomains: readonly { name: string }[] };
   [key: string]: unknown;
 }
 

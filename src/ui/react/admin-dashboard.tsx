@@ -128,14 +128,14 @@ export function AdminDashboard({
   </AdminShell>;
 }
 
-export interface ApplicationRegistration { name?: string; version?: string; registeredFeatures?: readonly { name?: string; displayName?: string; packageName?: string; version?: string }[]; domains?: readonly string[]; ui?: boolean; api?: boolean; admin?: boolean }
+export interface ApplicationRegistration { name?: string; version?: string; registeredFeatures?: readonly { name?: string; displayName?: string; packageName?: string; version?: string }[]; domains?: readonly string[]; readOnlyDomains?: readonly string[] }
 export interface AdminOverviewProps { registration?: ApplicationRegistration; links?: readonly AdminLinkItem[]; onNavigate?: (key: string) => void }
 export function AdminOverview({ registration }: AdminOverviewProps) {
   const resource = useApiResource("/api/admin/registration");
   const serverRegistration = recordField(resource.value, "registration");
   const current = registration || readApplicationRegistration(serverRegistration);
   const features = current?.registeredFeatures || [];
-  return <section className="cf-ui-card"><header><h1>{current?.name || "Application administration"}</h1><p>Application registration and runtime capabilities.</p></header><dl className="cf-ui-detail-list"><div><dt>App name</dt><dd>{current?.name || "Not supplied"}</dd></div><div><dt>Version</dt><dd>{current?.version || "Not supplied"}</dd></div><div><dt>Interfaces</dt><dd>{[current?.ui && "UI", current?.api && "API", current?.admin && "Admin"].filter(Boolean).join(" · ") || "Not supplied"}</dd></div><div><dt>Registered domains</dt><dd>{current?.domains?.join(", ") || "None"}</dd></div></dl><section><h2>Registered features</h2>{features.length ? <ul className="cf-ui-list">{features.map((feature, index) => <li className="cf-ui-list-row" key={feature.name || index}><strong>{feature.displayName || feature.name}</strong><small>{feature.packageName || "Unknown package"} · {feature.version || "Unknown version"}</small></li>)}</ul> : <p>No application features registered.</p>}</section></section>;
+  return <section className="cf-ui-card"><header><h1>{current?.name || "Application administration"}</h1><p>Application registration and runtime capabilities.</p></header><dl className="cf-ui-detail-list"><div><dt>App name</dt><dd>{current?.name || "Not supplied"}</dd></div><div><dt>Version</dt><dd>{current?.version || "Not supplied"}</dd></div><div><dt>Writable domains</dt><dd>{current?.domains?.join(", ") || "None"}</dd></div><div><dt>Read-only domains</dt><dd>{current?.readOnlyDomains?.join(", ") || "None"}</dd></div></dl><section><h2>Registered features</h2>{features.length ? <ul className="cf-ui-list">{features.map((feature, index) => <li className="cf-ui-list-row" key={feature.name || index}><strong>{feature.displayName || feature.name}</strong><small>{feature.packageName || "Unknown package"} · {feature.version || "Unknown version"}</small></li>)}</ul> : <p>No application features registered.</p>}</section></section>;
 }
 
 function readApplicationRegistration(value: ReturnType<typeof recordField>): ApplicationRegistration | undefined {
@@ -146,14 +146,15 @@ function readApplicationRegistration(value: ReturnType<typeof recordField>): App
   const domains = Array.isArray(value.domains)
     ? value.domains.filter((domain): domain is string => typeof domain === "string")
     : undefined;
+  const readOnlyDomains = Array.isArray(value.readOnlyDomains)
+    ? value.readOnlyDomains.filter((domain): domain is string => typeof domain === "string")
+    : undefined;
   return {
     name: typeof value.name === "string" ? value.name : undefined,
     version: typeof value.version === "string" ? value.version : undefined,
     registeredFeatures: features,
     domains,
-    ui: typeof value.ui === "boolean" ? value.ui : undefined,
-    api: typeof value.api === "boolean" ? value.api : undefined,
-    admin: typeof value.admin === "boolean" ? value.admin : undefined,
+    readOnlyDomains,
   };
 }
 

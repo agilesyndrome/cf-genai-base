@@ -104,6 +104,18 @@ inside that feature's folder and is exposed deliberately from its `index.ts`.
 
 ## Application domains
 
+Managed records are the high-level application composition path. `defineRecord`
+owns a named field schema and behavior mix-ins; `defineApp({ records })`
+generates the corresponding application domains during Worker construction.
+The first behavior is `versioned()`, whose storage engine owns immutable
+revisions, optimistic concurrency, drafts, publication, and version history.
+`workflow(...)` contributes a validated state field and transition route;
+`openStreetMapLocation()` contributes validated OSM identity and coordinate
+fields.
+Record behavior is intentionally separate from ordinary `AppDomain` classes so
+future mix-ins can contribute storage, validation, routes, and UI metadata
+without making versioning a special domain type.
+
 `AppDomain<Model, Env, State>` is the reusable boundary for a business concept.
 A domain owns its API route declarations, access defaults, custom policies, and
 named server views; its folder owns the model, validation, service, and D1 code.
@@ -111,7 +123,14 @@ Administrative access is one available policy, not a directory or inheritance
 requirement.
 
 `defineApp` returns an immutable manifest and preserves the inferred feature and
-domain types in its public declaration. `defineFeature` likewise narrows its
+domain types in its public declaration. App names are optional and default to
+`worker`; build tooling may provide a package-derived name, while applications
+can always override it explicitly. Empty apps are valid. `readOnlyDomains`
+registers domains whose routes must be read-only; mutating route methods are
+rejected during Worker construction. Read-only domain routes also receive
+read-only data and D1 facades, including read-only repositories. This boundary
+does not cover application middleware, domain initialization, or the terminal
+fetch handler. `defineFeature` likewise narrows its
 options from the built-in feature name. This makes the manifest the stable App
 SDK boundary: callers compose capabilities once, and the runtime consumes a
 snapshot that cannot drift when the caller later mutates its input arrays.

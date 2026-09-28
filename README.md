@@ -47,6 +47,48 @@ export default createWorker({
 });
 ```
 
+The smallest valid app is an empty Worker:
+
+```js
+import { createWorker, defineApp } from "@agilesyndrome/cf-genai-base";
+
+export default createWorker({
+  app: defineApp(),
+  fetch: async () => new Response("Hello World"),
+});
+```
+
+Register normal application domains with `domains`. Register public or
+semi-static domains with `readOnlyDomains`; Worker construction rejects their
+POST, PUT, PATCH, and DELETE routes, and their handlers receive read-only data
+and D1 contexts. The read-only guarantee applies to domain dispatch; custom
+middleware, initialization hooks, and the terminal fetch handler remain the
+application's responsibility.
+
+For a managed record, define fields and compose behavior directly in the app
+manifest. `createApp` supplies the Worker shell and a default fallback handler:
+
+```ts
+import { createApp, defineRecord, text, workflow } from "@agilesyndrome/cf-genai-base";
+
+const notes = defineRecord({
+  name: "notes",
+  fields: { title: text({ required: true }) },
+  with: [workflow({ states: ["todo", "inprogress", "done"] })],
+});
+
+export default createApp({ records: [notes] });
+```
+
+Use `versioned()` when a record needs drafts, immutable revisions, optimistic
+concurrency, publication, and version history. Apply `migrations/0011_records.sql`
+for versioned records and `migrations/0012_records_basic.sql` for simple records.
+
+Records can compose additional behaviors such as
+`workflow({ states: ["todo", "inprogress", "done"] })` and
+`openStreetMapLocation()`. Mix-ins may add fields, validation, storage, routes,
+permissions, and UI metadata without making those concerns part of versioning.
+
 Built-in features are inert unless an application registers them in
 `app.features`. Feature-specific APIs use explicit subpaths:
 

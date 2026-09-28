@@ -18,8 +18,8 @@ function d1() {
           ('northwind-alice', 'northwind'), ('northwind-bob', 'northwind'),
           ('contoso-carol', 'contoso'), ('contoso-dan', 'contoso');
         INSERT OR IGNORE INTO auth_scopes (name, label, description, system) VALUES
-          ('todos:read', 'Read todos', '', 0), ('todos:create', 'Create todos', '', 0),
-          ('todos:update', 'Update todos', '', 0), ('todos:delete', 'Delete todos', '', 0);
+          ('todos:read', 'Read todos', '', 0), ('todos:write', 'Write todos', '', 0),
+          ('todos:publish', 'Publish todos', '', 0);
         INSERT OR IGNORE INTO auth_user_scopes (user_id, scope_name) SELECT users.id, scopes.name
           FROM auth_users users CROSS JOIN auth_scopes scopes;
       `);
@@ -35,10 +35,9 @@ test("todo API lists only the caller tenant and keeps completed rows", async () 
   const response = await worker.fetch(new Request("https://todo.test/api/todos", { headers: auth("alice") }), env, ctx);
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.tenantId, "northwind");
-  assert.deepEqual(body.todos.map((todo) => todo.id), ["nw-1", "nw-2"]);
-  assert.equal(body.todos.find((todo) => todo.id === "nw-2").done, 1);
-  const otherTenant = env.DB.prepare("SELECT COUNT(*) AS count FROM todo_items WHERE tenant_id = ?").bind("contoso").first();
+  assert.deepEqual(body.records.map((record) => record.id), ["nw-1", "nw-2"]);
+  assert.equal(body.records.find((record) => record.id === "nw-2").content.workflow_state, "done");
+  const otherTenant = env.DB.prepare("SELECT COUNT(*) AS count FROM data_records WHERE tenant_id = ?").bind("contoso").first();
   assert.equal(otherTenant.count, 2, "D1 still contains the other tenant's rows; the API did not leak them");
 });
 

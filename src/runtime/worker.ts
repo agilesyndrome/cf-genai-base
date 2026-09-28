@@ -4,11 +4,13 @@ import { defineApp } from "../app.js";
 import { AUTH_DOMAINS, SubscriptionError } from "../auth/index.js";
 import { requestActor, requestContext } from "../auth/identity/index.js";
 import { CORE_DOMAINS } from "../core/domains.js";
-import { auditedD1 } from "../core/database/index.js";
+import { auditedD1, readOnlyD1 } from "../core/database/index.js";
 import { createEventHandler, type AppEvent } from "../core/events/index.js";
 import { secureResponse } from "../core/security/index.js";
 import { SecurityRequestError } from "../core/security/index.js";
 import { requestDataContext } from "../data/context.js";
+import { createReadOnlyDataReader } from "../data/reader.js";
+import { createRecordDomains } from "../data/records.js";
 import type { DataActorContext } from "../data/model.js";
 import { createDataReader } from "../data/reader.js";
 import { DataScopeError, normalizeDataResources } from "../data/resources.js";
@@ -82,12 +84,17 @@ export function createWorker<
     ...AUTH_DOMAINS,
     ...CORE_DOMAINS,
     ...createRuntimeDomains({ health }),
+    ...createRecordDomains(application.records),
     ...application.domains,
+    ...application.readOnlyDomains,
     ...activeFeatures.flatMap((feature) => feature.domains || []),
   ];
-  validateDomains(domains);
+  validateDomains(domains, new Set(application.readOnlyDomains));
 
-  const registeredApiRoutes = domains.flatMap((domain) => domain.routes);
+  const readOnlyDomainSet = new Set(application.readOnlyDomains);
+  const registeredApiRoutes = domains.flatMap((domain) => domain.routes.map((route) =>
+    readOnlyDomainSet.has(domain) ? { ...route, readOnly: true } : route
+  ));
   const dispatchApiRoutes = registeredApiRoutes.length
     ? createRouteDispatcher(registeredApiRoutes)
     : null;
@@ -173,6 +180,17 @@ export function createWorker<
         };
         requestEnv.repositories = createRepositories(requestEnv, repositoryDefinitions);
         requestEnv.requestId = state.requestId;
+        const readOnlyData = state.data ? createReadOnlyDataReader(state.data) : undefined;
+        const readOnlyEnv = Object.create(requestEnv) as RuntimeRequestEnvironment<Env>;
+        if (requestEnv.DB) readOnlyEnv.DB = readOnlyD1(requestEnv.DB);
+        readOnlyEnv.data = readOnlyData;
+        readOnlyEnv.repositories = createRepositories(readOnlyEnv, repositoryDefinitions);
+        state.readOnlyState = Object.assign(Object.create(null), state, {
+          data: readOnlyData,
+          readOnlyState: undefined,
+          readOnlyEnv: undefined,
+        });
+        state.readOnlyEnv = readOnlyEnv;
         state.context = requestContext({
           request,
           env: requestEnv,
@@ -182,6 +200,18 @@ export function createWorker<
         });
         requestEnv.context = state.context;
         requestEnv.event = state.context?.event;
+        if (state.readOnlyState) {
+          const readOnlyContext = requestContext({
+            request,
+            env: readOnlyEnv,
+            ctx,
+            state: state.readOnlyState,
+            data: readOnlyData,
+          });
+          state.readOnlyState.context = readOnlyContext;
+          readOnlyEnv.context = readOnlyContext;
+          readOnlyEnv.event = readOnlyContext.event;
+        }
 
         if (env.DB && hasOperationalManifest(activeFeatures)) {
           // Registration and breaker evaluation are background maintenance, not response work.
@@ -256,7 +286,7 @@ function withRequestId(response: Response, requestId: string): Response {
   });
 }
 
-function validateDomains(domains: readonly AnyAppDomain[]): void {
+function validateDomains(domains: readonly AnyAppDomain[], readOnlyDomains: ReadonlySet<AnyAppDomain>): void {
   const names = new Set<string>();
   const routes = new Set<string>();
   for (const domain of domains) {
@@ -272,6 +302,9 @@ function validateDomains(domains: readonly AnyAppDomain[]): void {
     for (const route of domain.routes) {
       const methods = Array.isArray(route.method) ? route.method : [route.method];
       for (const method of methods) {
+        if (readOnlyDomains.has(domain) && ["POST", "PUT", "PATCH", "DELETE"].includes(String(method).toUpperCase())) {
+          throw new TypeError(`Read-only domain ${domain.name} cannot register ${String(method).toUpperCase()} routes`);
+        }
         const key = `${method} ${route.path}`;
         if (routes.has(key)) throw new TypeError(`Duplicate domain route: ${key}`);
         routes.add(key);

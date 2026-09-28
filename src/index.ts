@@ -3,6 +3,8 @@
  * focused modules under ./runtime, ./core, ./auth, ./api, ./admin, and ./ui.
  */
 export { createWorker } from "./runtime/worker.js";
+export { createApp } from "./runtime/app.js";
+export type { CreateAppOptions } from "./runtime/app.js";
 export type * from "./runtime/model.js";
 export { ensureFeatureManifests } from "./runtime/features.js";
 export { assertBoot, validateBoot, methodNotAllowed, healthResponse } from "./runtime/health.js";

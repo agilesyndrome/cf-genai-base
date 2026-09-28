@@ -1,15 +1,3 @@
-CREATE TABLE IF NOT EXISTS todo_items (
-  id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL REFERENCES auth_tenants(id) ON DELETE CASCADE,
-  owner_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS todo_items_tenant_idx ON todo_items(tenant_id, done, created_at);
-
 INSERT OR IGNORE INTO auth_tenants (id, name) VALUES
   ('northwind', 'Northwind'),
   ('contoso', 'Contoso');
@@ -26,18 +14,18 @@ INSERT OR IGNORE INTO auth_user_tenants (user_id, tenant_id) VALUES
   ('contoso-carol', 'contoso'), ('contoso-dan', 'contoso');
 
 INSERT OR IGNORE INTO auth_scopes (name, label, description) VALUES
-  ('todos:read', 'Read todos', 'List and view todo items'),
-  ('todos:create', 'Create todos', 'Create todo items'),
-  ('todos:update', 'Update todos', 'Mark todo items done or change their title'),
-  ('todos:delete', 'Delete todos', 'Delete todo items');
+  ('todos:read', 'Read todos', 'List and view todo records'),
+  ('todos:write', 'Write todos', 'Create and edit todo records'),
+  ('todos:publish', 'Publish todos', 'Publish todo revisions');
 
 INSERT OR IGNORE INTO auth_user_scopes (user_id, scope_name, granted_by)
 SELECT id, scope_name, 'seed' FROM auth_users
-JOIN (SELECT 'todos:read' AS scope_name UNION ALL SELECT 'todos:create' UNION ALL SELECT 'todos:update' UNION ALL SELECT 'todos:delete')
+JOIN (SELECT 'todos:read' AS scope_name UNION ALL SELECT 'todos:write' UNION ALL SELECT 'todos:publish')
 WHERE id IN ('northwind-alice', 'northwind-bob', 'contoso-carol', 'contoso-dan');
 
-INSERT OR IGNORE INTO todo_items (id, tenant_id, owner_id, title, done) VALUES
-  ('nw-1', 'northwind', 'northwind-alice', 'Buy coffee', 0),
-  ('nw-2', 'northwind', 'northwind-bob', 'Review the launch checklist', 1),
-  ('co-1', 'contoso', 'contoso-carol', 'Send the weekly update', 0),
-  ('co-2', 'contoso', 'contoso-dan', 'Archive last month''s notes', 1);
+INSERT OR IGNORE INTO data_records (record_type, tenant_id, id, content_json, created_by)
+VALUES
+  ('todos', 'northwind', 'nw-1', '{"title":"Buy coffee","workflow_state":"todo"}', 'northwind-alice'),
+  ('todos', 'northwind', 'nw-2', '{"title":"Review the launch checklist","workflow_state":"done"}', 'northwind-bob'),
+  ('todos', 'contoso', 'co-1', '{"title":"Send the weekly update","workflow_state":"todo"}', 'contoso-carol'),
+  ('todos', 'contoso', 'co-2', '{"title":"Archive last month''s notes","workflow_state":"done"}', 'contoso-dan');
