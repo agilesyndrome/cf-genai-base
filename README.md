@@ -178,6 +178,72 @@ Use the selected D1 target (local by default) to inspect and update users:
 
 ## Scoped data access
 
+### Versioned data objects
+
+Sites can opt a tenant-owned object into immutable content revisions and explicit
+publication. Apply `migrations/0011_versioned_objects.sql` through the site's
+normal D1 migration process, then register a managed domain:
+
+```ts
+import { createWorker, defineApp, VersionedObjectDomain } from "@agilesyndrome/cf-genai-base";
+
+const recipes = new VersionedObjectDomain({
+  name: "recipes",
+  basePath: "/api/recipes",
+  fields: { title: "string", servings: "number", vegetarian: "boolean" },
+  publicRead: true,
+  writeScope: "recipes:write",
+  publishScope: "recipes:publish",
+  passport: { maximum: "public", default: "private", userChoice: true },
+  ratings: {
+    scale: ["yuck", "meh", "loved", "omg yum yum"],
+    maximum: "tenant", default: "private", userChoice: true,
+  },
+});
+
+export default createWorker({
+  app: defineApp({ name: "cookbook", domains: [recipes] }),
+  publicTenantId: "easley-family",
+  fetch: () => new Response("Not found", { status: 404 }),
+});
+```
+
+The domain provides `GET|POST /api/recipes`, `GET|PUT /api/recipes/:id`,
+`GET /api/recipes/:id/draft`, `GET /api/recipes/:id/versions`, and
+`POST|DELETE /api/recipes/:id/publish`. Create accepts `{ "content": {...} }`;
+save accepts `{ "expectedRevision": 1, "content": {...} }`; publish accepts
+`{ "revision": 1 }`. Public reads see only the chosen published revision, while
+signed-in tenant members can inspect the latest draft and history. Repeated saves
+require the current revision and return 409 on conflict. All writes are tenant
+scoped and use the managed service; do not register the shared object tables as
+generic writable resources. This object model supports scalar fields and
+tenant-owned objects. Workflow, places, and photos are separate future work.
+
+With passport enabled, `PUT|GET /api/recipes/:id/passport` writes or reads the
+caller's stamp, `GET /api/recipes/passport` lists the caller's stamps, and
+`GET /api/recipes/:id/passports` lists visible stamps. Ratings add
+`POST|GET /api/recipes/:id/ratings`. Rating accepts
+`{ "value": "loved", "visibility": "tenant" }`; it creates a private passport
+if needed and appends an event linked to the currently published revision.
+The caller's passport detail includes their rating history. Ratings can be
+enabled without an explicit passport configuration; this creates a private
+passport automatically. Multiple ratings never replace earlier events.
+
+Each passport and rating policy has a maximum visibility (`private`, `tenant`,
+or `public`), a default, an optional `userChoice`, and an optional capability
+`scope` for writes. Per-record visibility cannot exceed the site's maximum;
+ratings and stamps may have separate policies. Public sharing also requires
+`publicRead: true`. Public/tenant list endpoints check the published object
+and filter hidden rows before returning them; users can always see their own
+stamps and ratings through their personal endpoint. Apply
+`migrations/0012_object_engagement.sql` when enabling these mix-ins.
+Engagement lists return up to 100 rows and accept `?offset=100` for the next page.
+
+For anonymous reads, configure `publicTenantId` and `publicRead: true`. Grant
+the declared write and publish scopes through the normal authorization system.
+The domain itself supplies routes and validation; sites do not need to write
+their own SQL or CRUD handlers for these objects.
+
 Domains may register D1 resources with `dataResources` and receive the
 scoped reader on the request state as `state.data`. Resources declare `user`,
 `tenant`, `public`, or `system` scope, their physical table, and an explicit column

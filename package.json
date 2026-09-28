@@ -170,7 +170,8 @@
     "prepare": "node scripts/setup-git-hooks.mjs",
     "clean": "node scripts/clean-dist.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "check": "npm run typecheck && npm run format:check && npm run lint:source",
+    "check": "npm run typecheck && npm run typecheck:example && npm run format:check && npm run lint:source",
+    "typecheck:example": "tsc --noEmit -p examples/todo-list/tsconfig.json",
     "lint:source": "node scripts/lint-source.mjs",
     "format": "node scripts/format-source.mjs --write",
     "format:check": "node scripts/format-source.mjs && npm run lint:source -- --format-only",
@@ -180,13 +181,15 @@
     "verify:build": "node scripts/verify-build.mjs",
     "test": "node --import tsx --test tests/*.test.mjs",
     "test:integration": "node --import tsx --test examples/todo-list/test/integration.test.mjs",
-    "build": "npm run check && npm run prepack && npm test && npm run test:integration && npm run verify:build && npm pack --dry-run --ignore-scripts --loglevel=error"
+    "build": "npm run check && npm run prepack && npm test && npm run build:example-ui && npm run test:integration && npm run verify:build && npm pack --dry-run --ignore-scripts --loglevel=error",
+    "build:example-ui": "node examples/todo-list/scripts/build-ui.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260917.1",
     "@types/node": "^22.20.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.1.9",
+    "esbuild": "^0.28.2",
     "react-dom": "^19.0.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"

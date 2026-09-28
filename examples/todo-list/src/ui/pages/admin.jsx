@@ -1,4 +1,4 @@
-import { AdminDashboard } from "../../../src/ui/react/index.js";
+import { AdminDashboard } from "../../../../../src/ui/react/index.js";
 
 // Mount this component at /admin from the site's React entry point.
 export function TodoAdmin() {
