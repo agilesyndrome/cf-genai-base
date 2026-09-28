@@ -42,6 +42,44 @@ export function auditedD1(db: D1Database, who = "system:read"): D1Database {
   });
 }
 
+/** Wrap a D1 binding so a read-only domain cannot issue mutation SQL. */
+export function readOnlyD1(db: D1Database): D1Database {
+  return new Proxy(db, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (property === "prepare") {
+        return (sql: string) => {
+          if (!/^\s*(SELECT|EXPLAIN|VALUES)\b/i.test(String(sql))) {
+            throw new Error("Read-only domains may only prepare read queries");
+          }
+          return readOnlyStatement(target.prepare(sql));
+        };
+      }
+      if (property === "batch" || property === "exec") {
+        return () => { throw new Error("Read-only domains cannot execute database mutations"); };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+function readOnlyStatement(statement: D1PreparedStatement): D1PreparedStatement {
+  return new Proxy(statement, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (property === "run") {
+        return () => { throw new Error("Read-only domains cannot execute database mutations"); };
+      }
+      if (property === "bind") {
+        return (...args: unknown[]) => readOnlyStatement(
+          Reflect.apply(value as (...values: unknown[]) => D1PreparedStatement, target, args),
+        );
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export function auditedEnv<Env extends D1Environment>(env: Env, who = "system:read"): Env {
   if (!env.DB) return env;
   const result = Object.create(env) as Env;

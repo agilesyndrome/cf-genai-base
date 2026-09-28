@@ -6,14 +6,33 @@ Every site built from this foundation follows the same edge contract.
 
 `AppDomain` owns route contracts alongside a concept's model, views, data
 resources, and repositories. Applications register domains through
-`defineApp({ domains })`; base gives every domain route to Hono and enforces
+`defineApp({ domains, readOnlyDomains })`; base gives every domain route to Hono and enforces
 authentication, administrator status, same-origin mutation rules, custom
 policies, and scope checks before invoking the handler. `defineRoute` remains
 the low-level contract helper used by the domain dispatcher.
 
-`defineApp` snapshots and freezes its manifest arrays. TypeScript consumers
+`defineApp` accepts an optional app name (defaulting to `worker`), permits an
+empty app, and snapshots and freezes its manifest arrays. Domains listed in
+`readOnlyDomains` may expose read routes but fail Worker construction if they
+register POST, PUT, PATCH, or DELETE routes. TypeScript consumers
 retain the concrete domain and feature registration types, and built-in
 `defineFeature` options are selected from the feature name.
+
+Applications may also register managed records with `defineApp({ records })`.
+Records define field descriptors and composed behaviors such as `versioned()`,
+`workflow(...)`, and `openStreetMapLocation()`;
+the runtime generates their conventional domains and routes. The versioned
+record contract stores immutable revisions, requires expected revisions for
+saves, exposes drafts only to authorized readers, and exposes published
+revisions to the configured public audience. Versioned records require
+`migrations/0011_records.sql`; simple records require
+`migrations/0012_records_basic.sql`.
+
+Read-only domain routes receive read-only data and D1 facades. Data-reader
+inserts, updates, deletes, repository mutations, mutation SQL, and D1 batches
+fail closed. The boundary covers domain dispatch only: application middleware,
+`domain.initialize`, and the terminal `fetch` handler remain application code
+and must not be treated as read-only unless the deployment isolates bindings.
 
 The `/api` browser client returns `JsonValue | Response`: empty, `null`, or
 non-JSON success bodies preserve the original unread `Response`. Callers that

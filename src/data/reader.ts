@@ -20,7 +20,7 @@ import {
   isAllowed,
   quote,
 } from "./policy.js";
-import { normalizeDataResources } from "./resources.js";
+import { DataScopeError, normalizeDataResources } from "./resources.js";
 
 interface DataReaderOptions {
   resources?: readonly DataResourceInput[];
@@ -277,5 +277,31 @@ export function createDataReader(
     system: scope("system"),
     context: getContext,
     resources: [...registry.values()],
+  };
+}
+
+/**
+ * Preserve the read surface of a request data reader while making every data
+ * mutation fail closed. Read-only domains receive this facade instead of the
+ * normal writer-capable reader.
+ */
+export function createReadOnlyDataReader(reader: DataReader): DataReader {
+  const reject = async (): Promise<never> => {
+    throw new DataScopeError("This domain is read-only");
+  };
+  const readOnlyScope = (scope: DataScopeReader): DataScopeReader => ({
+    ...scope,
+    insert: reject,
+    update: reject,
+    updateWhere: reject,
+    delete: reject,
+    deleteWhere: reject,
+  });
+  return {
+    ...reader,
+    user: readOnlyScope(reader.user),
+    tenant: readOnlyScope(reader.tenant),
+    public: readOnlyScope(reader.public),
+    system: readOnlyScope(reader.system),
   };
 }

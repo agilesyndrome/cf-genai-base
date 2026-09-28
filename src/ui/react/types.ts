@@ -11,7 +11,7 @@ export interface UiRecord {
   result?: JsonValue; error?: JsonValue; scopes?: readonly (string | UiRecord)[]; tenants?: readonly UiRecord[];
   groups?: readonly UiRecord[]; users?: readonly UiRecord[]; healthchecks?: readonly UiRecord[]; circuit_breakers?: readonly UiRecord[];
   entitlements?: readonly UiRecord[]; circuit_breaker?: UiRecord | null; details?: JsonValue; metadata?: JsonValue; reason?: string; automated?: boolean | number;
-  registeredFeatures?: readonly UiRecord[]; domains?: readonly string[]; ui?: boolean; api?: boolean; admin?: boolean;
+  registeredFeatures?: readonly UiRecord[]; domains?: readonly string[]; readOnlyDomains?: readonly string[];
 }
 
 export interface AdminLinkItem { key: string; label: string; href: string }

@@ -24,6 +24,8 @@ export interface ApiRoute<Env = unknown, State = IdentityState> {
   scopes?: readonly string[];
   scopeMode?: "all" | "any";
   csrf?: boolean;
+  /** Internal composition marker for read-only application domains. */
+  readOnly?: boolean;
   authorize?: (
     context: RouteRequestContext<Env, State>,
   ) => boolean | Response | Promise<boolean | Response>;
@@ -128,11 +130,21 @@ function createRouteRouter<Env extends object, State extends IdentityState>(
         if (!allowed) return json({ error: "Required scope is missing." }, 403);
       }
 
+      const stateWithReadOnly = runtime.state as State & {
+        readOnlyState?: State;
+        readOnlyEnv?: Env;
+      };
+      const routeState = route.readOnly && stateWithReadOnly.readOnlyState
+        ? stateWithReadOnly.readOnlyState
+        : runtime.state;
+      const routeEnv = route.readOnly && stateWithReadOnly.readOnlyEnv
+        ? stateWithReadOnly.readOnlyEnv
+        : runtime.env;
       const routeContext: RouteRequestContext<Env, State> = {
         request: context.req.raw,
-        env: runtime.env,
+        env: routeEnv,
         ctx: runtime.ctx,
-        state: runtime.state,
+        state: routeState,
         route,
         identity,
         params: context.req.param(),
