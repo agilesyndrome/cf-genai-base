@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSqliteD1, repositoryMigrations } from "../../../tests/sqlite-d1.mjs";
-import worker from "../src/index.ts";
+import worker from "../src/entry.ts";
 
 function d1() {
   return createSqliteD1({
@@ -27,7 +27,11 @@ test("v6 managed todo list reads only published revisions in the active tenant",
   const env = { DB: d1() };
   const page = await worker.fetch(new Request("https://todo.test/", { headers: auth("alice") }), env, ctx);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Stamp/);
+  const document = await page.text();
+  assert.match(document, /Little by little/);
+  assert.match(document, /\/todo\.css/);
+  assert.match(document, /\/todo\.js/);
+  assert.doesNotMatch(document, /<style\b|<script(?![^>]*\bsrc=)/);
   const list = await request(env, "alice", "/api/todos");
   assert.equal(list.status, 200);
   assert.deepEqual(list.json.records.map((todo) => todo.id), ["nw-1", "nw-2"]);

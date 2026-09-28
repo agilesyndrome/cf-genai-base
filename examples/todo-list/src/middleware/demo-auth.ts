@@ -1,4 +1,4 @@
-import type { RuntimeFeature } from "../../../src/index.js";
+import type { RuntimeFeature } from "../../../../src/index.js";
 
 const users = new Map([
   ["alice", { id: "northwind-alice", subject: "alice", email: "alice@northwind.test", name: "Alice Northwind" }],
