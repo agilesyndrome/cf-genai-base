@@ -133,6 +133,7 @@ export class VersionedObjectStore {
   }
 
   async list(env: ObjectEnvironment, actor: DataActorContext) {
+    if (actor.invalidTenant || (actor.userId && !actor.tenantId)) throw new ObjectAccessError("Choose a tenant you belong to", 403);
     const tenant = actor.tenantId || actor.publicTenantId;
     if (!tenant || (!actor.userId && !this.definition.publicRead)) return [];
     const result = await binding(env).prepare(`SELECT r.id, v.revision, v.content_json FROM data_object_records r
@@ -144,6 +145,7 @@ export class VersionedObjectStore {
   }
 
   async read(env: ObjectEnvironment, actor: DataActorContext, id: string, draft = false) {
+    if (actor.invalidTenant || (actor.userId && !actor.tenantId)) throw new ObjectAccessError("Choose a tenant you belong to", 403);
     const tenant = draft ? ownTenant(actor) : actor.tenantId || actor.publicTenantId;
     if (!tenant || (!draft && !actor.userId && !this.definition.publicRead)) return null;
     if (draft) requireScope(actor, this.definition.readScope);
@@ -190,7 +192,8 @@ export class VersionedObjectDomain extends AppDomain {
   constructor(input: VersionedObjectInput) {
     const store = new VersionedObjectStore(input);
     const engagement = input.passport || input.ratings ? new ObjectEngagementStore(store, input) : null;
-    super({ name: `objects.${store.definition.name}`, basePath: input.basePath, auth: "user", csrf: true });
+    // Reads are safe cross-origin methods; only mutations need the origin guard.
+    super({ name: `objects.${store.definition.name}`, basePath: input.basePath, auth: "user" });
     this.store = store;
     this.engagement = engagement;
     const actor = (context: Context) => context.state.data.context();
@@ -198,7 +201,7 @@ export class VersionedObjectDomain extends AppDomain {
     if (engagement) {
       this.route({ method: "GET", path: "/passport", handler: (c: Context) => respond(async () =>
         ({ stamps: await engagement.myPassports(c.env, await actor(c), offset(c)) })) });
-      this.route({ method: "PUT", path: "/:id/passport", handler: (c: Context) => respond(async () =>
+      this.route({ method: "PUT", path: "/:id/passport", csrf: true, handler: (c: Context) => respond(async () =>
         engagement.stamp(c.env, await actor(c), c.params.id, (await body(c.request)).visibility)) });
       this.route({ method: "GET", path: "/:id/passport", handler: (c: Context) => respond(async () => {
         const result = await engagement.mine(c.env, await actor(c), c.params.id, offset(c));
@@ -208,7 +211,7 @@ export class VersionedObjectDomain extends AppDomain {
       this.route({ method: "GET", path: "/:id/passports", auth: "public", handler: (c: Context) => respond(async () =>
         ({ stamps: await engagement.visible(c.env, await actor(c), c.params.id, "passports", offset(c)) })) });
       if (engagement.ratings) {
-        this.route({ method: "POST", path: "/:id/ratings", handler: (c: Context) => respond(async () => {
+        this.route({ method: "POST", path: "/:id/ratings", csrf: true, handler: (c: Context) => respond(async () => {
           const input = await body(c.request);
           return engagement.rate(c.env, await actor(c), c.params.id, input.value, input.visibility);
         }, 201) });
@@ -218,14 +221,14 @@ export class VersionedObjectDomain extends AppDomain {
     }
     this.route({ method: "GET", auth: "public", handler: (c: Context) => respond(async () =>
       ({ records: await store.list(c.env, await actor(c)) })) });
-    this.route({ method: "POST", handler: (c: Context) => respond(async () => store.create(c.env, await actor(c), (await body(c.request)).content), 201) });
-    this.route({ method: "PUT", path: "/:id", handler: (c: Context) => respond(async () => {
+    this.route({ method: "POST", csrf: true, handler: (c: Context) => respond(async () => store.create(c.env, await actor(c), (await body(c.request)).content), 201) });
+    this.route({ method: "PUT", path: "/:id", csrf: true, handler: (c: Context) => respond(async () => {
       const input = await body(c.request);
       return store.save(c.env, await actor(c), c.params.id, Number(input.expectedRevision), input.content);
     }) });
-    this.route({ method: "POST", path: "/:id/publish", handler: (c: Context) => respond(async () =>
+    this.route({ method: "POST", path: "/:id/publish", csrf: true, handler: (c: Context) => respond(async () =>
       store.publish(c.env, await actor(c), c.params.id, Number((await body(c.request)).revision))) });
-    this.route({ method: "DELETE", path: "/:id/publish", handler: (c: Context) => respond(async () =>
+    this.route({ method: "DELETE", path: "/:id/publish", csrf: true, handler: (c: Context) => respond(async () =>
       store.unpublish(c.env, await actor(c), c.params.id)) });
     this.route({ method: "GET", path: "/:id/versions", handler: (c: Context) => respond(async () =>
       ({ versions: await store.versions(c.env, await actor(c), c.params.id) })) });
